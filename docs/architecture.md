@@ -7,6 +7,13 @@
 - Custom Rust verifier program for proof recursion.
 - CPU and GPU prover implementations for performance optimization.
 
+## Field Arithmetic and Constraints
+All arithmetization is performed over **Mersenne31 (M31)** field elements ($p = 2^{31} - 1$), with extension field operations used where security requires it (e.g., lookup finalization, FRI folding challenges).
+
+- **Degree-2 polynomial constraints** maximum for all AIR constraints. Keeping constraint degree at most 2 streamlines STARK/FRI proving optimizations and simplifies circuit performance analysis.
+- **16-bit limb decomposition** for 32-bit words. Each 32-bit value is represented as two 16-bit limbs; range checks via lookup tables or permutation arguments.
+- **Separate address space for registers**, accessed via a RAM argument. The 32 general-purpose registers live in a distinct memory region, reducing lookup collisions and allowing efficient permutation proofs.
+
 ## System overview
 1) **Compile + execute**: Build RISC-V binaries (Rust or other) -> run in an instrumented RV32IM executor -> capture deterministic trace (registers, pc, memory ops, syscalls/precompiles).
 2) **Trace to AIR**: Convert execution trace to AIR columns (CPU core, memory, delegation circuits, lookup logs). Apply trace compression (permutation, boundary randomization) for DEEP composition.
@@ -54,9 +61,9 @@
 - Batch lookups where possible; use column compression (e.g., random linear combination) before commitment.
 
 ## FRI / field / domain
-- **Field**: Start with Goldilocks (2^64 - 2^32 + 1) for GPU-friendly NTT; keep abstraction layer for alt fields (e.g., BN254 scalar) for recursion friendliness.
-- **Roots of unity**: Power-of-two domain sized to trace length + padding; enforce blowup >= 8x-16x depending on constraint degree.
-- **DEEP composition**: Out-of-domain sampling for boundary + transition polynomials; evaluation combined via random coefficients from transcript.
+- **Field**: Mersenne31 ($p = 2^{31} - 1$) as the base field for fast native arithmetic and efficient NTT via Circle STARKs or two-adic extension tower. Extension field (e.g., quartic M31) used for lookup grand products and FRI folding challenges to meet security targets.
+- **Roots of unity**: Power-of-two domain sized to trace length + padding; blowup factor 8×–16× depending on security/performance trade-off. With degree-2 constraints, a lower blowup is viable.
+- **DEEP composition**: Out-of-domain sampling for boundary + transition polynomials; evaluation combined via random extension-field coefficients from Fiat-Shamir transcript.
 
 ## Prover pipeline (CPU/GPU)
 - Trace ingestion -> column hashing -> low-degree extension (NTT) -> constraint evaluation -> composition polynomial -> DEEP queries -> FRI folding -> Merkle openings.
@@ -80,7 +87,7 @@
 - Performance benchmarks on CPU and GPU (trace size, proof time, memory footprint).
 
 ## Open questions / tunables
-- Field choice for recursion: stay in Goldilocks with custom SNARK, or switch to a 255-bit field for recursion friendliness.
-- Lookup style: multiplicative vs additive grand product; evaluate constraint degree impact.
+- Lookup style: multiplicative vs additive (LogUp) grand product; evaluate constraint degree impact on M31.
 - Delegation coverage: which BLAKE variant first (BLAKE2s vs BLAKE3) and limb sizes for U256.
 - On-chain target: which SNARK wrapper (Groth16, Plonkish) and circuit size budget for recursive verifier.
+- Extension degree for security: quartic M31 vs sextic for higher security margins.
