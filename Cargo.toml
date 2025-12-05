@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/primitives",
+    "crates/executor",
+    "crates/trace",
+    "crates/air",
+    "crates/prover",
+    "crates/verifier",
+    "crates/delegation",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/this-vishalsingh/zp1"
+
+[workspace.dependencies]
+# Internal crates
+zp1-primitives = { path = "crates/primitives" }
+zp1-executor = { path = "crates/executor" }
+zp1-trace = { path = "crates/trace" }
+zp1-air = { path = "crates/air" }
+zp1-prover = { path = "crates/prover" }
+zp1-verifier = { path = "crates/verifier" }
+zp1-delegation = { path = "crates/delegation" }
+
+# External dependencies
+rand = "0.8"
+sha2 = "0.10"
+blake3 = "1.5"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+rayon = "1.8"

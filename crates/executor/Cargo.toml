@@ -1,0 +1,13 @@
+[package]
+name = "zp1-executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zp1-primitives = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

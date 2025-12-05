@@ -1,0 +1,14 @@
+[package]
+name = "zp1-trace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zp1-primitives = { workspace = true }
+zp1-executor = { workspace = true }
+serde = { workspace = true }
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

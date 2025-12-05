@@ -1,0 +1,19 @@
+[package]
+name = "zp1-prover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zp1-primitives = { workspace = true }
+zp1-trace = { workspace = true }
+zp1-air = { workspace = true }
+sha2 = { workspace = true }
+blake3 = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

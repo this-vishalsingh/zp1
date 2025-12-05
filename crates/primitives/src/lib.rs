@@ -1,0 +1,15 @@
+//! zp1-primitives: Field arithmetic and core types for the zk RISC-V prover.
+//!
+//! This crate provides:
+//! - Mersenne31 (M31) base field arithmetic
+//! - Quartic extension field (QM31) for security-critical operations
+//! - 16-bit limb utilities for 32-bit word decomposition
+//! - Range-check helpers
+
+pub mod field;
+pub mod extension;
+pub mod limbs;
+
+pub use field::M31;
+pub use extension::QM31;
+pub use limbs::{to_limbs, from_limbs};
