@@ -67,6 +67,12 @@ impl M31 {
         self.0
     }
 
+    /// Get the inner value (alias for as_u32).
+    #[inline]
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+
     /// Compute the multiplicative inverse using Fermat's little theorem.
     /// a^(-1) = a^(p-2) mod p
     ///
@@ -80,6 +86,21 @@ impl M31 {
     /// Exponentiation by squaring.
     #[inline]
     pub fn pow(self, mut exp: u32) -> Self {
+        let mut base = self;
+        let mut result = Self::ONE;
+        while exp > 0 {
+            if exp & 1 == 1 {
+                result *= base;
+            }
+            base *= base;
+            exp >>= 1;
+        }
+        result
+    }
+
+    /// Exponentiation by squaring with u64 exponent.
+    #[inline]
+    pub fn pow_u64(self, mut exp: u64) -> Self {
         let mut base = self;
         let mut result = Self::ONE;
         while exp > 0 {
