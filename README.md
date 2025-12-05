@@ -83,6 +83,20 @@ assert!(verifier.verify(&proof));
 
 ## Architecture
 
+### Execution Model
+
+The executor operates in **machine mode only** (M-mode, highest RISC-V privilege level):
+
+- Standard fetch-decode-execute loop enforced at each cycle
+- **No support for system-level opcodes**: ECALL, EBREAK, WFI, FENCE
+  - These cause unprovable traps that fail proving
+- **Strict memory alignment**:
+  - Word (32-bit) accesses must be 4-byte aligned
+  - Halfword (16-bit) accesses must be 2-byte aligned
+- All traps converted to unprovable constraints (causing prover failure)
+
+This design ensures deterministic, fully constrained execution suitable for zero-knowledge proving.
+
 ### Field Arithmetic
 - **M31**: Mersenne prime field (p = 2^31 - 1) with SIMD-friendly operations
 - **QM31**: Degree-4 extension for FRI security (irreducible: x^4 + x + 2)

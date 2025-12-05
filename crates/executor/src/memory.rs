@@ -1,4 +1,14 @@
 //! Simple byte-addressable memory for RV32IM executor.
+//!
+//! # Alignment Requirements
+//!
+//! The memory subsystem enforces strict alignment for multi-byte accesses:
+//! - **Word (32-bit)**: Must be 4-byte aligned (addr % 4 == 0)
+//! - **Halfword (16-bit)**: Must be 2-byte aligned (addr % 2 == 0)
+//! - **Byte (8-bit)**: No alignment requirement
+//!
+//! Unaligned accesses result in `UnalignedAccess` errors which are
+//! unprovable traps that will cause prover failure.
 
 use crate::error::ExecutorError;
 use serde::{Deserialize, Serialize};
@@ -53,10 +63,17 @@ impl Memory {
     }
 
     /// Read a halfword (16-bit) from memory (little-endian).
+    /// 
+    /// # Errors
+    /// Returns `UnalignedAccess` if addr is not 2-byte aligned (unprovable trap).
     #[inline]
     pub fn read_u16(&self, addr: u32) -> Result<u16, ExecutorError> {
         if addr & 1 != 0 {
-            return Err(ExecutorError::UnalignedAccess { addr });
+            return Err(ExecutorError::UnalignedAccess { 
+                addr, 
+                access_type: "halfword read",
+                required: 2,
+            });
         }
         let idx = addr as usize;
         if idx + 1 >= self.data.len() {
@@ -66,10 +83,17 @@ impl Memory {
     }
 
     /// Read a word (32-bit) from memory (little-endian).
+    /// 
+    /// # Errors
+    /// Returns `UnalignedAccess` if addr is not 4-byte aligned (unprovable trap).
     #[inline]
     pub fn read_u32(&self, addr: u32) -> Result<u32, ExecutorError> {
         if addr & 3 != 0 {
-            return Err(ExecutorError::UnalignedAccess { addr });
+            return Err(ExecutorError::UnalignedAccess { 
+                addr, 
+                access_type: "word read",
+                required: 4,
+            });
         }
         let idx = addr as usize;
         if idx + 3 >= self.data.len() {
@@ -95,10 +119,17 @@ impl Memory {
     }
 
     /// Write a halfword (16-bit) to memory (little-endian).
+    /// 
+    /// # Errors
+    /// Returns `UnalignedAccess` if addr is not 2-byte aligned (unprovable trap).
     #[inline]
     pub fn write_u16(&mut self, addr: u32, val: u16) -> Result<(), ExecutorError> {
         if addr & 1 != 0 {
-            return Err(ExecutorError::UnalignedAccess { addr });
+            return Err(ExecutorError::UnalignedAccess { 
+                addr, 
+                access_type: "halfword write",
+                required: 2,
+            });
         }
         let idx = addr as usize;
         if idx + 1 >= self.data.len() {
@@ -111,10 +142,17 @@ impl Memory {
     }
 
     /// Write a word (32-bit) to memory (little-endian).
+    /// 
+    /// # Errors
+    /// Returns `UnalignedAccess` if addr is not 4-byte aligned (unprovable trap).
     #[inline]
     pub fn write_u32(&mut self, addr: u32, val: u32) -> Result<(), ExecutorError> {
         if addr & 3 != 0 {
-            return Err(ExecutorError::UnalignedAccess { addr });
+            return Err(ExecutorError::UnalignedAccess { 
+                addr, 
+                access_type: "word write",
+                required: 4,
+            });
         }
         let idx = addr as usize;
         if idx + 3 >= self.data.len() {

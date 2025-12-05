@@ -48,6 +48,7 @@ pub mod opcode {
     pub const OP_IMM: u8 = 0b0010011;
     pub const OP: u8 = 0b0110011;
     pub const SYSTEM: u8 = 0b1110011;
+    pub const MISC_MEM: u8 = 0b0001111; // FENCE instructions
 }
 
 impl DecodedInstr {

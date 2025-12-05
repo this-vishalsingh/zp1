@@ -1,4 +1,24 @@
 //! RV32IM CPU implementation.
+//!
+//! # Execution Model
+//!
+//! The CPU operates in **machine mode only** (M-mode, highest RISC-V privilege level).
+//!
+//! ## Constraints
+//!
+//! - Standard fetch-decode-execute loop enforced at each cycle
+//! - **No support for ECALL/EBREAK/WFI/FENCE** system-level opcodes
+//!   - These cause `UnprovableTrap` errors that will fail proving
+//! - **No unaligned memory accesses**:
+//!   - Full-word (32-bit) accesses must be 4-byte aligned
+//!   - Half-word (16-bit) accesses must be 2-byte aligned
+//! - All traps are converted to unprovable constraints (causing prover failure)
+//!
+//! ## Why These Restrictions?
+//!
+//! The proving system requires deterministic, fully constrained execution.
+//! System calls, interrupts, and misaligned accesses would require complex
+//! trap handling circuits that significantly increase proof complexity.
 
 use crate::decode::{opcode, DecodedInstr};
 use crate::error::ExecutorError;
@@ -328,23 +348,33 @@ impl Cpu {
                 }
             }
             opcode::SYSTEM => {
+                // System instructions are unprovable traps in machine-mode-only execution
                 match instr.imm as u32 & 0xFFF {
                     0x000 => {
-                        // ECALL
+                        // ECALL - system call (unprovable trap)
                         flags.is_ecall = true;
                         let syscall_id = self.get_reg(17); // a7
-                        return Err(ExecutorError::Syscall { syscall_id });
+                        return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
                     }
                     0x001 => {
-                        // EBREAK
+                        // EBREAK - debug breakpoint (unprovable trap)
                         flags.is_ebreak = true;
                         return Err(ExecutorError::Ebreak { pc: self.pc });
                     }
+                    0x105 => {
+                        // WFI - Wait For Interrupt (unprovable trap)
+                        return Err(ExecutorError::Wfi { pc: self.pc });
+                    }
                     _ => {
-                        // Other CSR instructions not supported
+                        // CSR instructions and other system ops not supported
                         return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
                     }
                 }
+            }
+            opcode::MISC_MEM => {
+                // FENCE instructions (opcode 0x0F) - memory barriers (unprovable trap)
+                // Not needed in single-threaded deterministic execution
+                return Err(ExecutorError::Fence { pc: self.pc });
             }
             _ => {
                 return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
@@ -379,25 +409,29 @@ impl Cpu {
         Ok(if self.tracing { Some(row) } else { None })
     }
 
-    /// Run until halt, syscall, or max_steps reached.
+    /// Run until halt, unprovable trap, or max_steps reached.
+    /// 
+    /// Note: ECALL/EBREAK/WFI/FENCE are unprovable traps that will cause prover failure.
+    /// Programs should not use these instructions if they need to be proven.
     pub fn run(&mut self, max_steps: u64) -> Result<ExecutionTrace, ExecutorError> {
         self.enable_tracing();
 
         for _ in 0..max_steps {
             match self.step() {
                 Ok(_) => {}
-                Err(ExecutorError::Syscall { syscall_id }) => {
+                Err(ExecutorError::Ecall { syscall_id, .. }) => {
                     // Handle halt syscall (syscall_id = 93 is exit in Linux)
+                    // Note: This is an unprovable trap - execution can continue but proving will fail
                     if syscall_id == 93 {
                         let mut trace = self.take_trace().unwrap_or_default();
                         trace.final_regs = self.regs;
                         trace.final_pc = self.pc;
                         trace.total_cycles = self.cycle;
-                        trace.halt_reason = Some(format!("exit({})", self.get_reg(10)));
+                        trace.halt_reason = Some(format!("exit({}) - WARNING: unprovable trap", self.get_reg(10)));
                         return Ok(trace);
                     }
-                    // For other syscalls, could add handlers here
-                    return Err(ExecutorError::Syscall { syscall_id });
+                    // For other syscalls, return the error (unprovable)
+                    return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
                 }
                 Err(e) => return Err(e),
             }
