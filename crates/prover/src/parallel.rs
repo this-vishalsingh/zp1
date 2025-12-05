@@ -67,36 +67,47 @@ fn extend_column(column: &[M31], blowup: usize) -> Vec<M31> {
     extended
 }
 
-/// Parallel Merkle tree leaf hashing.
+// Domain separation prefixes (must match commitment.rs)
+const LEAF_PREFIX: u8 = 0x00;
+const INTERNAL_PREFIX: u8 = 0x01;
+
+/// Parallel Merkle tree leaf hashing with domain separation.
 pub fn parallel_hash_leaves(values: &[M31]) -> Vec<[u8; 32]> {
     values
         .par_iter()
         .map(|v| {
             use blake3::Hasher;
             let mut hasher = Hasher::new();
+            hasher.update(&[LEAF_PREFIX]);
             hasher.update(&v.as_u32().to_le_bytes());
             *hasher.finalize().as_bytes()
         })
         .collect()
 }
 
-/// Parallel Merkle tree layer computation.
-pub fn parallel_merkle_layer(leaves: &[[u8; 32]]) -> Vec<[u8; 32]> {
-    let n = leaves.len() / 2;
+/// Parallel Merkle tree layer computation with domain separation.
+pub fn parallel_merkle_layer(children: &[[u8; 32]]) -> Vec<[u8; 32]> {
+    let n = children.len() / 2;
     (0..n)
         .into_par_iter()
         .map(|i| {
             use blake3::Hasher;
             let mut hasher = Hasher::new();
-            hasher.update(&leaves[2 * i]);
-            hasher.update(&leaves[2 * i + 1]);
+            hasher.update(&[INTERNAL_PREFIX]);
+            hasher.update(&children[2 * i]);
+            hasher.update(&children[2 * i + 1]);
             *hasher.finalize().as_bytes()
         })
         .collect()
 }
 
 /// Build Merkle tree in parallel.
+/// Returns (all_layers_flattened, root).
 pub fn parallel_merkle_tree(values: &[M31]) -> (Vec<[u8; 32]>, [u8; 32]) {
+    if values.is_empty() {
+        return (vec![[0u8; 32]], [0u8; 32]);
+    }
+    
     let n = values.len().next_power_of_two();
     
     // Hash leaves in parallel

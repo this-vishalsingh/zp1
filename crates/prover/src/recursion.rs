@@ -8,6 +8,7 @@
 
 #![allow(dead_code)]
 
+use blake3::Hasher;
 use zp1_primitives::M31;
 use crate::stark::StarkProof;
 
@@ -36,6 +37,8 @@ pub struct RecursionConfig {
     pub security_bits: usize,
     /// Whether to use parallel recursion
     pub parallel: bool,
+    /// Validate inner proofs structurally before aggregation
+    pub verify_structure: bool,
 }
 
 impl Default for RecursionConfig {
@@ -44,6 +47,7 @@ impl Default for RecursionConfig {
             max_batch_size: 4,
             security_bits: 100,
             parallel: true,
+            verify_structure: true,
         }
     }
 }
@@ -74,6 +78,12 @@ impl RecursiveProver {
             });
         }
         
+        if self.config.verify_structure {
+            for (i, proof) in proofs.iter().enumerate() {
+                self.validate_proof(proof).map_err(|msg| RecursionError::InvalidProof(format!("proof {}: {}", i, msg)))?;
+            }
+        }
+
         // Extract public outputs from each proof (trace commitment as proxy)
         let public_outputs: Vec<Vec<M31>> = proofs
             .iter()
@@ -92,18 +102,11 @@ impl RecursiveProver {
         // Compute commitment to all proofs
         let verifier_commitment = self.compute_batch_commitment(proofs);
         
-        // In a real implementation, we would:
-        // 1. Build a circuit that verifies all inner proofs
-        // 2. Generate a trace for the verification circuit
-        // 3. Prove the verification circuit
-        //
-        // For now, we create a placeholder aggregated proof
-        let aggregated = StarkProof {
-            trace_commitment: verifier_commitment,
-            composition_commitment: verifier_commitment,
-            fri_proof: proofs[0].fri_proof.clone(),
-            query_proofs: proofs[0].query_proofs.clone(),
-        };
+        // Placeholder aggregated proof: we cannot build a real recursive proof here.
+        // We retain the first proof's structure but bind both commitments to the batch hash.
+        let mut aggregated = proofs[0].clone();
+        aggregated.trace_commitment = verifier_commitment;
+        aggregated.composition_commitment = verifier_commitment;
         
         Ok(RecursiveProof {
             inner_proof: aggregated,
@@ -115,18 +118,37 @@ impl RecursiveProver {
     
     /// Compute commitment to a batch of proofs.
     fn compute_batch_commitment(&self, proofs: &[StarkProof]) -> [u8; 32] {
-        use sha2::{Sha256, Digest};
-        
-        let mut hasher = Sha256::new();
-        
+        let mut hasher = Hasher::new();
+
         for proof in proofs {
             hasher.update(&proof.trace_commitment);
             hasher.update(&proof.composition_commitment);
+            // Bind minimal structural data
+            hasher.update(&(proof.fri_proof.layer_commitments.len() as u64).to_le_bytes());
+            hasher.update(&(proof.query_proofs.len() as u64).to_le_bytes());
         }
-        
-        let mut commitment = [0u8; 32];
-        commitment.copy_from_slice(&hasher.finalize());
-        commitment
+
+        *hasher.finalize().as_bytes()
+    }
+
+    /// Basic structural validation of a StarkProof (cheap, no cryptographic verification).
+    fn validate_proof(&self, proof: &StarkProof) -> Result<(), &'static str> {
+        if proof.trace_commitment.len() != 32 || proof.composition_commitment.len() != 32 {
+            return Err("Commitments must be 32 bytes");
+        }
+        if proof.ood_values.trace_at_z.len() != proof.ood_values.trace_at_z_next.len() {
+            return Err("OOD trace vectors length mismatch");
+        }
+        if proof.ood_values.trace_at_z.is_empty() {
+            return Err("OOD trace vectors empty");
+        }
+        if proof.fri_proof.layer_commitments.is_empty() {
+            return Err("FRI layer commitments empty");
+        }
+        if proof.fri_proof.final_poly.is_empty() {
+            return Err("FRI final polynomial empty");
+        }
+        Ok(())
     }
     
     /// Flatten public outputs for aggregated proof.
@@ -312,11 +334,17 @@ impl ProofCompressor {
 mod tests {
     use super::*;
     use crate::fri::FriProof;
+    use crate::stark::OodValues;
     
     fn mock_proof() -> StarkProof {
         StarkProof {
             trace_commitment: [1u8; 32],
             composition_commitment: [2u8; 32],
+            ood_values: OodValues {
+                trace_at_z: vec![M31::new(1)],
+                trace_at_z_next: vec![M31::new(2)],
+                composition_at_z: M31::new(3),
+            },
             fri_proof: FriProof {
                 layer_commitments: vec![[3u8; 32], [4u8; 32]],
                 query_proofs: vec![],

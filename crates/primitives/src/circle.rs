@@ -1,112 +1,118 @@
 //! Circle group and Circle FFT for Mersenne31.
 //!
-//! M31 doesn't have large 2-adic subgroups (p-1 = 2 * 3 * 7 * ...),
-//! so standard NTT doesn't work. Instead, we use the circle group
-//! { (x, y) : x^2 + y^2 = 1 } over M31.
+//! # Circle STARKs Background
 //!
-//! The circle group over M31 has order |C| = 2 * (p + 1) = 2^32,
-//! giving us plenty of room for large FFT domains.
+//! The Mersenne31 field M31 doesn't have large 2-adic subgroups for standard NTT
+//! (since p-1 = 2·3·7·11·31·151·331, only a factor of 2).
 //!
-//! Reference: Circle STARKs (Polygon/StarkWare)
+//! Instead, Circle STARKs use the **circle group**:
+//! ```text
+//! C(M31) = { (x, y) ∈ M31² : x² + y² = 1 }
+//! ```
+//!
+//! This group has order |C| = p + 1 = 2^31, giving us a full 2-adic subgroup!
+//!
+//! # Group Operations
+//!
+//! The circle group is isomorphic to the group of complex numbers with |z| = 1,
+//! under the map (x, y) ↔ x + iy. Multiplication follows the angle-addition formulas:
+//! - Identity: (1, 0)
+//! - Inverse: (x, y)⁻¹ = (x, -y)  
+//! - Product: (x₁, y₁) · (x₂, y₂) = (x₁x₂ - y₁y₂, x₁y₂ + y₁x₂)
+//! - Squaring: (x, y)² = (x² - y², 2xy) = (2x² - 1, 2xy)
+//!
+//! # Polynomial Evaluation
+//!
+//! We evaluate standard polynomials f(x) at the x-coordinates of circle points.
+//! However, for proper Circle FFT, we need to handle the fact that points
+//! (x, y) and (x, -y) share the same x-coordinate.
+//!
+//! # References
+//!
+//! - Circle STARKs paper (Polygon/StarkWare)
+//! - Stwo prover implementation
 
 use crate::field::M31;
+use serde::{Deserialize, Serialize};
 
-/// Modular square root using Tonelli-Shanks (simplified for M31).
-/// M31 = 3 mod 4, so sqrt(a) = a^((p+1)/4) when a is a QR.
-fn sqrt_m31(a: M31) -> Option<M31> {
-    if a == M31::ZERO {
+// ============================================================================
+// Square Root in M31
+// ============================================================================
+
+/// Modular square root in M31.
+///
+/// Since M31 ≡ 3 (mod 4), we can use the simple formula:
+/// sqrt(a) = a^((p+1)/4) = a^(2^29)
+///
+/// Returns None if a is not a quadratic residue.
+pub fn sqrt_m31(a: M31) -> Option<M31> {
+    if a.is_zero() {
         return Some(M31::ZERO);
     }
     
-    // For p = 3 mod 4: sqrt(a) = a^((p+1)/4)
-    // p + 1 = 2^31, so (p+1)/4 = 2^29
-    let exp = 1u64 << 29;
-    let r = a.pow_u64(exp);
+    // For p ≡ 3 (mod 4): sqrt(a) = a^((p+1)/4) = a^(2^29)
+    let r = a.pow_u64(1u64 << 29);
     
-    // Verify
+    // Verify: r² = a
     if r * r == a {
         Some(r)
     } else {
-        None
+        None // a is not a quadratic residue
     }
 }
 
-/// A point on the circle x^2 + y^2 = 1 over M31.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// ============================================================================
+// Circle Point
+// ============================================================================
+
+/// A point on the unit circle x² + y² = 1 over M31.
+///
+/// Represents an element of the multiplicative circle group C(M31).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CirclePoint {
+    /// The x-coordinate (cos θ in the angle interpretation).
     pub x: M31,
+    /// The y-coordinate (sin θ in the angle interpretation).
     pub y: M31,
 }
 
 impl CirclePoint {
-    /// The identity element (1, 0).
+    /// The identity element (1, 0) - corresponds to angle 0.
     pub const IDENTITY: Self = Self { x: M31::ONE, y: M31::ZERO };
 
-    /// The point (0, 1) - has order 4.
-    pub const J: Self = Self { x: M31::ZERO, y: M31::ONE };
+    /// The point (0, 1) - corresponds to angle π/2, has order 4.
+    pub const I: Self = Self { x: M31::ZERO, y: M31::ONE };
 
-    /// Create a new circle point.
+    /// The point (-1, 0) - corresponds to angle π, has order 2.
+    pub const NEG_ONE: Self = Self { x: M31(M31::P - 1), y: M31::ZERO };
+
+    /// Create a new circle point (does not verify it's on the circle).
+    #[inline]
     pub const fn new(x: M31, y: M31) -> Self {
         Self { x, y }
     }
 
-    /// Create a point from x-coordinate, computing y.
+    /// Create a point from the x-coordinate, computing y = ±√(1 - x²).
+    /// Returns the point with positive y (or y = 0).
     pub fn from_x(x: M31) -> Option<Self> {
-        // y^2 = 1 - x^2
-        let y2 = M31::ONE - x * x;
-        sqrt_m31(y2).map(|y| Self { x, y })
+        let y_squared = M31::ONE - x * x;
+        sqrt_m31(y_squared).map(|y| Self { x, y })
     }
 
-    /// Generator of a subgroup of order 2^k.
-    /// The full circle group has order 2^32.
-    pub fn generator(log_order: usize) -> Self {
-        assert!(log_order <= 31, "Maximum subgroup order is 2^31");
-        
-        // Start with the generator of order 2^31 and square down
-        let mut g = Self::generator_max_two_adicity();
-        
-        for _ in log_order..31 {
-            g = g.double();
-        }
-        
-        g
-    }
-
-    /// Generator of the maximal 2-adic subgroup (order 2^31).
-    /// This is a carefully chosen point that generates a subgroup of order 2^31.
-    fn generator_max_two_adicity() -> Self {
-        // For x^2 + y^2 = 1 mod p with p = 2^31 - 1:
-        // We need a point of order exactly 2^31.
-        //
-        // The circle group is isomorphic to Z/(p+1)Z = Z/2^31 Z.
-        // A generator of the 2^31 subgroup corresponds to picking
-        // a "small angle" that generates the full domain.
-        //
-        // Using the standard Circle STARK generator for M31:
-        // These values are verified to satisfy x^2 + y^2 = 1 and
-        // have order exactly 2^31.
-        Self {
-            x: M31::new(2),
-            y: M31::new(1268011823),
-        }
-    }
-
-    /// Double a point (squaring in the circle group).
-    /// Uses angle doubling: (cos θ, sin θ)² = (cos 2θ, sin 2θ)
-    /// = (cos²θ - sin²θ, 2 cos θ sin θ) = (2x² - 1, 2xy)
+    /// Check if this point is on the unit circle: x² + y² = 1.
     #[inline]
-    pub fn double(self) -> Self {
-        let x2 = self.x * self.x;
-        let y2 = self.y * self.y;
-        Self {
-            x: x2 - y2,
-            y: (self.x * self.y).double(),
-        }
+    pub fn is_valid(&self) -> bool {
+        self.x * self.x + self.y * self.y == M31::ONE
     }
 
-    /// Multiply two circle points (group addition = complex multiplication).
-    /// (cos α, sin α) * (cos β, sin β) = (cos(α+β), sin(α+β))
-    /// = (cos α cos β - sin α sin β, cos α sin β + sin α cos β)
+    /// Check if this is the identity (1, 0).
+    #[inline]
+    pub fn is_identity(&self) -> bool {
+        self.x == M31::ONE && self.y.is_zero()
+    }
+
+    /// Group multiplication (corresponds to adding angles).
+    /// (x₁, y₁) · (x₂, y₂) = (x₁x₂ - y₁y₂, x₁y₂ + y₁x₂)
     #[inline]
     pub fn mul(self, other: Self) -> Self {
         Self {
@@ -115,14 +121,34 @@ impl CirclePoint {
         }
     }
 
-    /// Inverse (conjugate for unit circle).
-    /// (x, y)^(-1) = (x, -y)
+    /// Squaring (doubling the angle).
+    /// (x, y)² = (x² - y², 2xy) = (2x² - 1, 2xy)
+    #[inline]
+    pub fn double(self) -> Self {
+        Self {
+            x: self.x * self.x - self.y * self.y,
+            y: self.x * self.y + self.x * self.y, // 2xy
+        }
+    }
+
+    /// Inverse (negating the angle).
+    /// (x, y)⁻¹ = (x, -y)
     #[inline]
     pub fn inv(self) -> Self {
-        Self {
-            x: self.x,
-            y: -self.y,
-        }
+        Self { x: self.x, y: -self.y }
+    }
+
+    /// Conjugate - same as inverse for unit circle.
+    #[inline]
+    pub fn conjugate(self) -> Self {
+        self.inv()
+    }
+
+    /// Antipodal point: -P = (-x, -y) (NOT the inverse!).
+    /// This is the "other" point at the same angle + π.
+    #[inline]
+    pub fn antipodal(self) -> Self {
+        Self { x: -self.x, y: -self.y }
     }
 
     /// Compute self^n using repeated squaring.
@@ -141,45 +167,114 @@ impl CirclePoint {
         result
     }
 
-    /// Check if this is the identity.
-    #[inline]
-    pub fn is_identity(self) -> bool {
-        self.x == M31::ONE && self.y == M31::ZERO
-    }
-
-    /// Verify that this point is on the circle.
-    #[inline]
-    pub fn is_valid(self) -> bool {
-        self.x * self.x + self.y * self.y == M31::ONE
-    }
-
-    /// Get the x-coordinate (used in polynomial evaluations).
+    /// Get x-coordinate.
     #[inline]
     pub fn x_coord(self) -> M31 {
         self.x
     }
+
+    /// Get y-coordinate.  
+    #[inline]
+    pub fn y_coord(self) -> M31 {
+        self.y
+    }
+
+    // ========================================================================
+    // Generator Construction
+    // ========================================================================
+
+    /// Generator of the circle subgroup of order 2^log_order.
+    ///
+    /// The full circle group C(M31) has order p + 1 = 2^31.
+    /// This returns a generator for the unique subgroup of order 2^log_order.
+    pub fn generator(log_order: usize) -> Self {
+        assert!(log_order <= 31, "Maximum subgroup order is 2^31");
+        
+        // Start with the generator of order 2^31
+        let g = Self::generator_order_2_31();
+        
+        // Square (31 - log_order) times to get generator of order 2^log_order
+        // g^(2^(31-k)) has order 2^k
+        let mut result = g;
+        for _ in log_order..31 {
+            result = result.double();
+        }
+        
+        result
+    }
+
+    /// Generator of the full 2^31 subgroup of C(M31).
+    ///
+    /// This is a primitive 2^31-th root of unity on the circle, meaning:
+    /// - g^(2^31) = (1, 0)  
+    /// - g^(2^30) ≠ (1, 0)
+    ///
+    /// We use the canonical generator from Circle STARKs:
+    /// g = (2, sqrt(1 - 4)) = (2, sqrt(-3))
+    fn generator_order_2_31() -> Self {
+        // The canonical Circle STARK generator has x = 2
+        // y² = 1 - x² = 1 - 4 = -3 (mod p)
+        // -3 mod p = p - 3 = 2147483644
+        //
+        // We need sqrt(p - 3) mod p.
+        // Precomputed: sqrt(2147483644) mod (2^31 - 1) = 1268011823
+        //
+        // Verification: 1268011823² mod (2^31 - 1) = 2147483644 ✓
+        // And: 2² + 1268011823² mod (2^31 - 1) = 4 + 2147483644 = 2147483648 = 1 ✓
+
+        let x = M31::new(2);
+        let y = M31::new(1268011823);
+        
+        debug_assert!(x * x + y * y == M31::ONE, "Generator not on circle");
+        
+        Self { x, y }
+    }
+
+    /// Alternative generator constructor that computes y from x.
+    #[allow(dead_code)]
+    fn generator_order_2_31_computed() -> Self {
+        let x = M31::new(2);
+        let y_squared = M31::ONE - x * x;  // 1 - 4 = -3 = p - 3
+        let y = sqrt_m31(y_squared).expect("y² should be a QR");
+        Self { x, y }
+    }
 }
 
-/// Circle FFT domain - a coset of the circle group.
+impl Default for CirclePoint {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+// ============================================================================
+// Circle Domain
+// ============================================================================
+
+/// A domain for Circle polynomial evaluation.
+///
+/// Represents the cyclic group generated by g where g has order 2^log_size.
+/// Points are [g^0, g^1, ..., g^(n-1)] where n = 2^log_size.
 #[derive(Clone, Debug)]
 pub struct CircleDomain {
-    /// Log2 of the domain size.
+    /// Log₂ of the domain size.
     pub log_size: usize,
     /// Domain size = 2^log_size.
     pub size: usize,
-    /// Generator of this domain (point of order `size`).
+    /// Generator of this domain.
     pub generator: CirclePoint,
-    /// Precomputed domain points: [g^0, g^1, ..., g^(size-1)].
+    /// Precomputed domain points.
     points: Vec<CirclePoint>,
 }
 
 impl CircleDomain {
-    /// Create a new circle domain of size 2^log_size.
+    /// Create a circle domain of size 2^log_size.
     pub fn new(log_size: usize) -> Self {
-        let size = 1 << log_size;
+        assert!(log_size <= 31, "Domain size exceeds circle group order");
+        
+        let size = 1usize << log_size;
         let generator = CirclePoint::generator(log_size);
         
-        // Precompute all domain points
+        // Precompute all domain points: [g^0, g^1, ..., g^(n-1)]
         let mut points = Vec::with_capacity(size);
         let mut current = CirclePoint::IDENTITY;
         for _ in 0..size {
@@ -187,15 +282,13 @@ impl CircleDomain {
             current = current.mul(generator);
         }
         
-        Self {
-            log_size,
-            size,
-            generator,
-            points,
-        }
+        // Verify: the last multiplication should give identity
+        debug_assert!(current.is_identity(), "Domain points don't form a cycle");
+        
+        Self { log_size, size, generator, points }
     }
 
-    /// Get the i-th domain point (wraps around if i >= size).
+    /// Get the i-th domain point (g^i).
     #[inline]
     pub fn get_point(&self, i: usize) -> CirclePoint {
         self.points[i % self.size]
@@ -206,143 +299,197 @@ impl CircleDomain {
         &self.points
     }
 
-    /// Get all x-coordinates (for polynomial evaluation).
+    /// Get x-coordinates of all domain points.
     pub fn x_coords(&self) -> Vec<M31> {
         self.points.iter().map(|p| p.x).collect()
     }
+
+    /// Get y-coordinates of all domain points.
+    pub fn y_coords(&self) -> Vec<M31> {
+        self.points.iter().map(|p| p.y).collect()
+    }
+
+    /// Check if all points are valid (on the circle).
+    pub fn verify(&self) -> bool {
+        self.points.iter().all(|p| p.is_valid())
+    }
+    
+    /// Get unique x-coordinates (for polynomial evaluation).
+    /// Returns (unique_xs, mapping) where mapping[i] gives the index in unique_xs
+    /// for domain point i.
+    pub fn unique_x_coords(&self) -> (Vec<M31>, Vec<usize>) {
+        let mut unique_xs = Vec::new();
+        let mut mapping = Vec::with_capacity(self.size);
+        
+        for p in &self.points {
+            if let Some(idx) = unique_xs.iter().position(|&x| x == p.x) {
+                mapping.push(idx);
+            } else {
+                mapping.push(unique_xs.len());
+                unique_xs.push(p.x);
+            }
+        }
+        
+        (unique_xs, mapping)
+    }
 }
 
-/// Circle FFT - transform between coefficient and evaluation representations.
-/// Uses the Twin-Coset approach where evaluation points come in (x, y) and (x, -y) pairs.
+// ============================================================================
+// Coset (for Low-Degree Extension)
+// ============================================================================
+
+/// A coset of a circle domain: { shift · g^i : i = 0, ..., n-1 }.
+///
+/// Used for low-degree extension (LDE) where we evaluate on a coset
+/// disjoint from the original domain.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
+pub struct Coset {
+    /// The underlying domain.
+    pub domain: CircleDomain,
+    /// The coset shift.
+    pub shift: CirclePoint,
+    /// Shifted domain points.
+    shifted_points: Vec<CirclePoint>,
+}
+
+impl Coset {
+    /// Create a coset by shifting a domain.
+    pub fn new(domain: CircleDomain, shift: CirclePoint) -> Self {
+        let shifted_points = domain.points.iter()
+            .map(|p| shift.mul(*p))
+            .collect();
+        
+        Self { domain, shift, shifted_points }
+    }
+
+    /// Create the standard LDE coset.
+    ///
+    /// For a domain of size n with generator g (of order n),
+    /// we shift by a generator h of order 2n, giving a coset
+    /// disjoint from the original domain.
+    pub fn lde_coset(log_size: usize) -> Self {
+        let domain = CircleDomain::new(log_size);
+        
+        // Shift by generator of order 2n (one step up in the subgroup chain)
+        // This gives a coset h·D that is disjoint from D
+        let shift = CirclePoint::generator(log_size + 1);
+        
+        Self::new(domain, shift)
+    }
+
+    /// Get the i-th coset point.
+    #[inline]
+    pub fn get_point(&self, i: usize) -> CirclePoint {
+        self.shifted_points[i % self.domain.size]
+    }
+
+    /// Get all coset points.
+    pub fn points(&self) -> &[CirclePoint] {
+        &self.shifted_points
+    }
+
+    /// Get size of the coset.
+    pub fn size(&self) -> usize {
+        self.domain.size
+    }
+}
+
+// ============================================================================
+// Circle FFT
+// ============================================================================
+
+/// Circle FFT for transforming between coefficient and evaluation representations.
+///
+/// # Note on Circle Polynomial Representation
+///
+/// Standard univariate polynomials f(x) cannot be directly evaluated on circle domains
+/// because points (x, y) and (x, -y) share the same x-coordinate. Instead, we use:
+///
+/// 1. **For FFT**: Evaluate f(x) at the **unique** x-coordinates in the first half of
+///    the domain. The domain is structured so the first half has all unique x-values.
+///
+/// 2. **For IFFT**: Interpolate using only the unique x-coordinates.
+///
+/// This gives us a consistent polynomial representation for Circle STARKs.
+///
+/// # Complexity
+///
+/// - FFT: O(n²) field operations (can be O(n log n) with proper Circle FFT)
+/// - IFFT: O(n²) field operations (Lagrange interpolation)
+#[derive(Clone, Debug)]
 pub struct CircleFFT {
+    /// The evaluation domain.
     domain: CircleDomain,
-    /// Twiddle factors for the FFT butterfly operations (precomputed for optimization).
-    twiddles: Vec<M31>,
-    /// Inverse twiddle factors.
-    inv_twiddles: Vec<M31>,
 }
 
 impl CircleFFT {
-    /// Create a new Circle FFT for domain size 2^log_size.
+    /// Create a Circle FFT for domain size 2^log_size.
     pub fn new(log_size: usize) -> Self {
         let domain = CircleDomain::new(log_size);
-        
-        // Precompute twiddle factors
-        // For circle FFT, twiddles are based on x-coordinates at each level
-        let size = domain.size;
-        let mut twiddles = Vec::with_capacity(size);
-        let mut inv_twiddles = Vec::with_capacity(size);
-        
-        for level in 0..log_size {
-            let level_size = 1 << level;
-            let step = size / (2 * level_size);
-            
-            for j in 0..level_size {
-                let point = domain.get_point(j * step);
-                twiddles.push(point.x);
-                inv_twiddles.push(point.x); // Same for inverse due to structure
-            }
-        }
-        
-        Self {
-            domain,
-            twiddles,
-            inv_twiddles,
-        }
+        Self { domain }
     }
 
-    /// Forward FFT: coefficients -> evaluations.
-    /// Evaluates a polynomial at all domain points.
+    /// Forward FFT: polynomial coefficients → evaluations.
+    ///
+    /// Input: coefficients [c₀, c₁, ..., c_{n/2-1}] (degree < n/2)
+    /// Output: evaluations [f(p₀), f(p₁), ..., f(p_{n-1})]
+    ///
+    /// The polynomial is evaluated at all domain points using their x-coordinates.
+    /// For twin points (x, y) and (x, -y), they get the same evaluation f(x).
     pub fn fft(&self, coeffs: &[M31]) -> Vec<M31> {
         let n = self.domain.size;
-        assert!(coeffs.len() <= n, "Input too large for domain");
+        let half = n / 2;
         
-        // Pad to domain size
-        let mut data: Vec<M31> = coeffs.to_vec();
-        data.resize(n, M31::ZERO);
+        // Pad coefficients to half domain size (max useful degree)
+        let mut padded = coeffs.to_vec();
+        if padded.len() > half {
+            padded.truncate(half);
+        }
+        padded.resize(half, M31::ZERO);
         
-        // Bit-reverse permutation
-        bit_reverse_permutation(&mut data);
+        // Evaluate at each domain point's x-coordinate
+        let mut evals = Vec::with_capacity(n);
         
-        // Cooley-Tukey butterflies
-        for level in 0..self.domain.log_size {
-            let half_block = 1 << level;
-            let block_size = half_block * 2;
-            
-            for block_start in (0..n).step_by(block_size) {
-                for j in 0..half_block {
-                    let i = block_start + j;
-                    let u = data[i];
-                    let v = data[i + half_block];
-                    
-                    // Butterfly: add/sub only for standard FFT structure
-                    // For circle FFT, we use x-coordinate based twiddles
-                    let twiddle_idx = (j * (n / block_size)) % n;
-                    let w = self.domain.get_point(twiddle_idx).x;
-                    
-                    let t = v * w;
-                    data[i] = u + t;
-                    data[i + half_block] = u - t;
-                }
-            }
+        for i in 0..n {
+            let x = self.domain.get_point(i).x;
+            let val = evaluate_poly(&padded, x);
+            evals.push(val);
         }
         
-        data
+        evals
     }
 
-    /// Inverse FFT: evaluations -> coefficients.
+    /// Inverse FFT: evaluations → polynomial coefficients.
+    ///
+    /// Input: evaluations [f(p₀), f(p₁), ..., f(p_{n-1})]  
+    /// Output: coefficients [c₀, c₁, ..., c_{n/2-1}]
+    ///
+    /// Uses only the first half of evaluations (which correspond to unique x-coordinates
+    /// in a properly structured domain).
     pub fn ifft(&self, evals: &[M31]) -> Vec<M31> {
         let n = self.domain.size;
-        assert_eq!(evals.len(), n, "Input must match domain size");
+        let half = n / 2;
         
-        let mut data = evals.to_vec();
+        assert_eq!(evals.len(), n, "Evaluation count must match domain size");
         
-        // Bit-reverse permutation
-        bit_reverse_permutation(&mut data);
+        // Get x-coordinates of first half (should be unique)
+        let xs: Vec<M31> = (0..half).map(|i| self.domain.get_point(i).x).collect();
+        let ys: Vec<M31> = (0..half).map(|i| evals[i]).collect();
         
-        // Inverse butterflies (reverse order, conjugate twiddles)
-        for level in 0..self.domain.log_size {
-            let half_block = 1 << level;
-            let block_size = half_block * 2;
-            
-            for block_start in (0..n).step_by(block_size) {
-                for j in 0..half_block {
-                    let i = block_start + j;
-                    let u = data[i];
-                    let v = data[i + half_block];
-                    
-                    let twiddle_idx = (j * (n / block_size)) % n;
-                    // Use inverse point for inverse transform
-                    let w = self.domain.get_point(n - twiddle_idx).x;
-                    
-                    let t = v * w;
-                    data[i] = u + t;
-                    data[i + half_block] = u - t;
-                }
-            }
-        }
-        
-        // Scale by 1/n
-        let n_inv = M31::new(n as u32).inv();
-        for x in &mut data {
-            *x *= n_inv;
-        }
-        
-        data
+        // Lagrange interpolation on the unique x-coordinates
+        interpolate_lagrange(&xs, &ys)
     }
 
     /// Low-degree extension: extend evaluations to a larger domain.
+    ///
+    /// Given evaluations on domain D of size n, returns evaluations
+    /// on a domain D' of size n · 2^log_extension.
     pub fn extend(&self, evals: &[M31], log_extension: usize) -> Vec<M31> {
-        // Get coefficients via iFFT
+        // Recover coefficients
         let coeffs = self.ifft(evals);
         
-        // Create larger FFT
-        let new_log_size = self.domain.log_size + log_extension;
-        let extended_fft = CircleFFT::new(new_log_size);
-        
-        // FFT on larger domain
+        // Evaluate on larger domain
+        let extended_fft = CircleFFT::new(self.domain.log_size + log_extension);
         extended_fft.fft(&coeffs)
     }
 
@@ -360,14 +507,211 @@ impl CircleFFT {
     pub fn get_domain_point(&self, i: usize) -> CirclePoint {
         self.domain.get_point(i)
     }
+
+    /// Get the domain.
+    pub fn domain(&self) -> &CircleDomain {
+        &self.domain
+    }
 }
 
-/// Bit-reverse permutation in-place.
-fn bit_reverse_permutation(data: &mut [M31]) {
+// ============================================================================
+// Polynomial Operations
+// ============================================================================
+
+/// Evaluate polynomial at a single point using Horner's method.
+///
+/// For f(x) = c₀ + c₁x + c₂x² + ... + cₙxⁿ, computes f(point).
+/// Complexity: O(n) field operations.
+#[inline]
+pub fn evaluate_poly(coeffs: &[M31], point: M31) -> M31 {
+    let mut result = M31::ZERO;
+    for &c in coeffs.iter().rev() {
+        result = result * point + c;
+    }
+    result
+}
+
+/// Lagrange interpolation: given (xᵢ, yᵢ) pairs, find polynomial f with f(xᵢ) = yᵢ.
+///
+/// Complexity: O(n²) field operations.
+/// Panics if xs contains duplicates.
+pub fn interpolate_lagrange(xs: &[M31], ys: &[M31]) -> Vec<M31> {
+    let n = xs.len();
+    assert_eq!(n, ys.len(), "xs and ys must have same length");
+    
+    if n == 0 {
+        return vec![];
+    }
+    if n == 1 {
+        return vec![ys[0]];
+    }
+    
+    // Check for duplicates
+    for i in 0..n {
+        for j in (i+1)..n {
+            assert!(xs[i] != xs[j], "Duplicate x values in interpolation: x[{}] = x[{}] = {}", 
+                    i, j, xs[i].value());
+        }
+    }
+    
+    let mut coeffs = vec![M31::ZERO; n];
+    
+    for i in 0..n {
+        // Compute Lagrange basis polynomial Lᵢ(x) = ∏_{j≠i} (x - xⱼ)/(xᵢ - xⱼ)
+        
+        // First compute denominator: ∏_{j≠i} (xᵢ - xⱼ)
+        let mut denom = M31::ONE;
+        for j in 0..n {
+            if i != j {
+                denom = denom * (xs[i] - xs[j]);
+            }
+        }
+        
+        // Scale factor: yᵢ / denom
+        let scale = ys[i] * denom.inv();
+        
+        // Build numerator polynomial: ∏_{j≠i} (x - xⱼ)
+        let mut basis = vec![M31::ONE];
+        for j in 0..n {
+            if i != j {
+                // Multiply by (x - xⱼ)
+                let mut new_basis = vec![M31::ZERO; basis.len() + 1];
+                for (k, &b) in basis.iter().enumerate() {
+                    new_basis[k + 1] = new_basis[k + 1] + b;        // +b·x
+                    new_basis[k] = new_basis[k] - b * xs[j];        // -b·xⱼ
+                }
+                basis = new_basis;
+            }
+        }
+        
+        // Add scaled basis to result
+        for (k, &b) in basis.iter().enumerate() {
+            if k < n {
+                coeffs[k] = coeffs[k] + scale * b;
+            }
+        }
+    }
+    
+    coeffs
+}
+
+/// Multiply two polynomials.
+///
+/// Given f = [f₀, f₁, ...] and g = [g₀, g₁, ...], computes f·g.
+/// Complexity: O(n·m) where n, m are the degrees.
+pub fn poly_mul(f: &[M31], g: &[M31]) -> Vec<M31> {
+    if f.is_empty() || g.is_empty() {
+        return vec![];
+    }
+    
+    let mut result = vec![M31::ZERO; f.len() + g.len() - 1];
+    
+    for (i, &fi) in f.iter().enumerate() {
+        for (j, &gj) in g.iter().enumerate() {
+            result[i + j] = result[i + j] + fi * gj;
+        }
+    }
+    
+    result
+}
+
+/// Add two polynomials.
+pub fn poly_add(f: &[M31], g: &[M31]) -> Vec<M31> {
+    let max_len = f.len().max(g.len());
+    let mut result = vec![M31::ZERO; max_len];
+    
+    for (i, &fi) in f.iter().enumerate() {
+        result[i] = result[i] + fi;
+    }
+    for (i, &gi) in g.iter().enumerate() {
+        result[i] = result[i] + gi;
+    }
+    
+    result
+}
+
+/// Subtract two polynomials.
+pub fn poly_sub(f: &[M31], g: &[M31]) -> Vec<M31> {
+    let max_len = f.len().max(g.len());
+    let mut result = vec![M31::ZERO; max_len];
+    
+    for (i, &fi) in f.iter().enumerate() {
+        result[i] = result[i] + fi;
+    }
+    for (i, &gi) in g.iter().enumerate() {
+        result[i] = result[i] - gi;
+    }
+    
+    result
+}
+
+/// Scale a polynomial by a constant.
+pub fn poly_scale(f: &[M31], c: M31) -> Vec<M31> {
+    f.iter().map(|&fi| fi * c).collect()
+}
+
+/// Compute the degree of a polynomial (highest non-zero coefficient index).
+/// Returns None for the zero polynomial.
+pub fn poly_degree(f: &[M31]) -> Option<usize> {
+    for (i, &c) in f.iter().enumerate().rev() {
+        if !c.is_zero() {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Polynomial division with remainder.
+/// Returns (quotient, remainder) such that f = q·g + r with deg(r) < deg(g).
+pub fn poly_divmod(f: &[M31], g: &[M31]) -> (Vec<M31>, Vec<M31>) {
+    let g_deg = match poly_degree(g) {
+        Some(d) => d,
+        None => panic!("Division by zero polynomial"),
+    };
+    
+    let f_deg = match poly_degree(f) {
+        Some(d) => d,
+        None => return (vec![], vec![]), // 0 / g = 0 remainder 0
+    };
+    
+    if f_deg < g_deg {
+        return (vec![], f.to_vec());
+    }
+    
+    let mut remainder = f.to_vec();
+    let mut quotient = vec![M31::ZERO; f_deg - g_deg + 1];
+    
+    let lead_g_inv = g[g_deg].inv();
+    
+    for i in (0..=f_deg - g_deg).rev() {
+        let coeff = remainder[i + g_deg] * lead_g_inv;
+        quotient[i] = coeff;
+        
+        for j in 0..=g_deg {
+            remainder[i + j] = remainder[i + j] - coeff * g[j];
+        }
+    }
+    
+    // Trim trailing zeros from remainder
+    while remainder.len() > 1 && remainder.last() == Some(&M31::ZERO) {
+        remainder.pop();
+    }
+    
+    (quotient, remainder)
+}
+
+// ============================================================================
+// Bit Reversal (for FFT)
+// ============================================================================
+
+/// Bit-reverse permutation of a slice.
+#[allow(dead_code)]
+pub fn bit_reverse_permutation<T: Copy>(data: &mut [T]) {
     let n = data.len();
     if n <= 1 {
         return;
     }
+    
     let log_n = n.trailing_zeros() as usize;
     
     for i in 0..n {
@@ -378,100 +722,15 @@ fn bit_reverse_permutation(data: &mut [M31]) {
     }
 }
 
-/// Reverse the bits of a number.
+/// Reverse the bits of x, treating it as a log_n-bit number.
 #[inline]
-fn bit_reverse(mut x: usize, bits: usize) -> usize {
-    let mut result = 0;
-    for _ in 0..bits {
-        result = (result << 1) | (x & 1);
-        x >>= 1;
-    }
-    result
+pub fn bit_reverse(x: usize, log_n: usize) -> usize {
+    x.reverse_bits() >> (usize::BITS as usize - log_n)
 }
 
-/// Evaluate a polynomial at a single point using Horner's method.
-pub fn evaluate_poly(coeffs: &[M31], x: M31) -> M31 {
-    let mut result = M31::ZERO;
-    for &c in coeffs.iter().rev() {
-        result = result * x + c;
-    }
-    result
-}
-
-/// Interpolate a polynomial through (x_i, y_i) pairs using Lagrange.
-/// This is O(n²) and only for small inputs/testing.
-pub fn interpolate_naive(xs: &[M31], ys: &[M31]) -> Vec<M31> {
-    let n = xs.len();
-    assert_eq!(n, ys.len());
-    
-    let mut coeffs = vec![M31::ZERO; n];
-    
-    for i in 0..n {
-        // Compute Lagrange basis polynomial L_i
-        let mut basis = vec![M31::ZERO; n];
-        basis[0] = M31::ONE;
-        let mut denom = M31::ONE;
-        
-        let mut basis_degree = 0;
-        for j in 0..n {
-            if i == j {
-                continue;
-            }
-            
-            denom *= xs[i] - xs[j];
-            
-            // Multiply basis by (x - x_j)
-            for k in (1..=basis_degree + 1).rev() {
-                basis[k] = basis[k - 1] - xs[j] * basis[k];
-            }
-            basis[0] = -xs[j] * basis[0];
-            basis_degree += 1;
-        }
-        
-        // Add y_i * L_i / denom
-        let scale = ys[i] * denom.inv();
-        for k in 0..n {
-            coeffs[k] += scale * basis[k];
-        }
-    }
-    
-    coeffs
-}
-
-/// Coset - a shifted copy of a domain (for LDE).
-#[derive(Clone, Debug)]
-pub struct Coset {
-    /// Base domain.
-    pub domain: CircleDomain,
-    /// Coset shift.
-    pub shift: CirclePoint,
-    /// Shifted points.
-    shifted_points: Vec<CirclePoint>,
-}
-
-impl Coset {
-    /// Create a coset by shifting the domain.
-    pub fn new(domain: CircleDomain, shift: CirclePoint) -> Self {
-        let shifted_points = domain.points.iter()
-            .map(|p| p.mul(shift))
-            .collect();
-        
-        Self { domain, shift, shifted_points }
-    }
-
-    /// Create a standard LDE coset (shifted off the base domain).
-    pub fn lde_coset(log_size: usize) -> Self {
-        let domain = CircleDomain::new(log_size);
-        // Shift by a generator of a larger group to get disjoint coset
-        let shift = CirclePoint::generator(log_size + 1);
-        Self::new(domain, shift)
-    }
-
-    /// Get the i-th coset element.
-    pub fn get_point(&self, i: usize) -> CirclePoint {
-        self.shifted_points[i]
-    }
-}
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -479,69 +738,102 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        // Test sqrt of 4 = 2
+        // sqrt(4) = 2
         let four = M31::new(4);
-        let two = sqrt_m31(four).unwrap();
-        assert!(two * two == four);
+        let r = sqrt_m31(four).unwrap();
+        assert!(r * r == four);
         
-        // Test sqrt of 1 = 1
-        let one = M31::ONE;
-        let r = sqrt_m31(one).unwrap();
-        assert!(r * r == one);
+        // sqrt(1) = 1
+        assert!(sqrt_m31(M31::ONE).unwrap() * sqrt_m31(M31::ONE).unwrap() == M31::ONE);
+        
+        // sqrt(0) = 0
+        assert_eq!(sqrt_m31(M31::ZERO), Some(M31::ZERO));
     }
 
     #[test]
     fn test_circle_point_identity() {
-        let p = CirclePoint::IDENTITY;
-        assert!(p.is_valid());
-        assert!(p.is_identity());
+        let id = CirclePoint::IDENTITY;
+        assert!(id.is_valid());
+        assert!(id.is_identity());
+        assert_eq!(id.x, M31::ONE);
+        assert_eq!(id.y, M31::ZERO);
     }
 
     #[test]
-    fn test_generator_is_valid() {
-        // Check that the base generator is actually on the circle
-        let g = CirclePoint::generator_max_two_adicity();
-        let lhs = g.x * g.x + g.y * g.y;
-        assert_eq!(lhs, M31::ONE, "Generator must satisfy x^2 + y^2 = 1");
+    fn test_circle_point_mul() {
+        let p = CirclePoint::generator(4);
+        
+        // p * identity = p
+        assert_eq!(p.mul(CirclePoint::IDENTITY), p);
+        
+        // identity * p = p  
+        assert_eq!(CirclePoint::IDENTITY.mul(p), p);
+        
+        // p * p^(-1) = identity
+        let p_inv = p.inv();
+        assert!(p.mul(p_inv).is_identity());
     }
 
     #[test]
     fn test_circle_point_double() {
         let g = CirclePoint::generator(4);
-        assert!(g.is_valid(), "Generator must be on circle");
+        assert!(g.is_valid());
         
         let g2 = g.double();
-        assert!(g2.is_valid(), "Double must stay on circle");
+        assert!(g2.is_valid());
         
-        // g^2 should equal g * g
-        let g_mul_g = g.mul(g);
-        assert_eq!(g2.x, g_mul_g.x);
-        assert_eq!(g2.y, g_mul_g.y);
+        // g.double() should equal g.mul(g)
+        assert_eq!(g2, g.mul(g));
+    }
+
+    #[test]
+    fn test_generator_is_valid() {
+        // Check generator is on circle
+        let g = CirclePoint::generator_order_2_31();
+        assert!(g.is_valid(), "Generator must satisfy x² + y² = 1");
+        
+        // Verify the specific values
+        assert_eq!(g.x, M31::new(2));
+        let y_sq = g.y * g.y;
+        let expected_y_sq = M31::ONE - g.x * g.x; // 1 - 4 = -3
+        assert_eq!(y_sq, expected_y_sq);
     }
 
     #[test]
     fn test_circle_point_order() {
         // Generator of order 2^4 = 16
         let g = CirclePoint::generator(4);
-        let g16 = g.pow(16);
-        assert!(g16.is_identity(), "g^16 should be identity, got ({}, {})", g16.x.value(), g16.y.value());
         
-        // g^8 should not be identity
+        // g^16 should be identity
+        let g16 = g.pow(16);
+        assert!(g16.is_identity(), "g^16 should be identity");
+        
+        // g^8 should NOT be identity
         let g8 = g.pow(8);
         assert!(!g8.is_identity(), "g^8 should not be identity");
+        
+        // g^4 should NOT be identity
+        let g4 = g.pow(4);
+        assert!(!g4.is_identity(), "g^4 should not be identity");
     }
 
     #[test]
     fn test_circle_domain() {
         let domain = CircleDomain::new(3);
         assert_eq!(domain.size, 8);
+        assert_eq!(domain.log_size, 3);
         
-        // First point should be identity
+        // First point is identity
         assert!(domain.get_point(0).is_identity());
         
-        // All points should be valid
+        // All points are valid
+        assert!(domain.verify());
+        
+        // All points are distinct
         for i in 0..domain.size {
-            assert!(domain.get_point(i).is_valid(), "Point {} invalid", i);
+            for j in (i + 1)..domain.size {
+                assert_ne!(domain.get_point(i), domain.get_point(j));
+            }
         }
     }
 
@@ -550,12 +842,16 @@ mod tests {
         assert_eq!(bit_reverse(0b000, 3), 0b000);
         assert_eq!(bit_reverse(0b001, 3), 0b100);
         assert_eq!(bit_reverse(0b010, 3), 0b010);
+        assert_eq!(bit_reverse(0b011, 3), 0b110);
         assert_eq!(bit_reverse(0b100, 3), 0b001);
+        assert_eq!(bit_reverse(0b101, 3), 0b101);
+        assert_eq!(bit_reverse(0b110, 3), 0b011);
+        assert_eq!(bit_reverse(0b111, 3), 0b111);
     }
 
     #[test]
     fn test_evaluate_poly() {
-        // f(x) = 1 + 2x + 3x^2
+        // f(x) = 1 + 2x + 3x²
         let coeffs = vec![M31::new(1), M31::new(2), M31::new(3)];
         
         // f(0) = 1
@@ -566,34 +862,144 @@ mod tests {
         
         // f(2) = 1 + 4 + 12 = 17
         assert_eq!(evaluate_poly(&coeffs, M31::new(2)), M31::new(17));
+        
+        // f(10) = 1 + 20 + 300 = 321
+        assert_eq!(evaluate_poly(&coeffs, M31::new(10)), M31::new(321));
     }
 
     #[test]
     fn test_interpolate() {
-        let xs: Vec<M31> = (0..4).map(|i| M31::new(i)).collect();
+        // Points: (0,1), (1,6), (2,17), (3,34)
+        // These lie on f(x) = 1 + 2x + 3x²
+        let xs = vec![M31::new(0), M31::new(1), M31::new(2), M31::new(3)];
         let ys = vec![M31::new(1), M31::new(6), M31::new(17), M31::new(34)];
         
-        let coeffs = interpolate_naive(&xs, &ys);
+        let coeffs = interpolate_lagrange(&xs, &ys);
         
         // Verify interpolation
-        for (i, &x) in xs.iter().enumerate() {
-            let y = evaluate_poly(&coeffs, x);
+        for i in 0..4 {
+            let y = evaluate_poly(&coeffs, xs[i]);
             assert_eq!(y, ys[i], "Interpolation failed at x={}", i);
         }
     }
 
     #[test]
     fn test_fft_constant() {
-        // FFT of constant polynomial should give constant evaluations
+        // FFT of constant polynomial f(x) = 42
         let fft = CircleFFT::new(3);
-        let coeffs = vec![M31::new(42), M31::ZERO, M31::ZERO, M31::ZERO,
-                         M31::ZERO, M31::ZERO, M31::ZERO, M31::ZERO];
+        let coeffs = vec![M31::new(42)];
         
         let evals = fft.fft(&coeffs);
         
-        // All evaluations of f(x) = 42 should be 42
+        // All evaluations should be 42
         for (i, &e) in evals.iter().enumerate() {
-            assert_eq!(e, M31::new(42), "Eval at {} should be 42, got {}", i, e.value());
+            assert_eq!(e, M31::new(42), "Eval at {} should be 42", i);
+        }
+    }
+
+    #[test]
+    fn test_fft_linear() {
+        // FFT of f(x) = 1 + 2x
+        let fft = CircleFFT::new(2);
+        let coeffs = vec![M31::new(1), M31::new(2)];
+        
+        let evals = fft.fft(&coeffs);
+        
+        // Verify each evaluation manually
+        for i in 0..4 {
+            let x = fft.get_domain_point(i).x;
+            let expected = M31::new(1) + M31::new(2) * x;
+            assert_eq!(evals[i], expected, "FFT mismatch at point {}", i);
+        }
+    }
+
+    #[test]
+    fn test_fft_ifft_roundtrip() {
+        let fft = CircleFFT::new(3);
+        let half = fft.size() / 2;
+        
+        // Original polynomial of degree < n/2
+        let original = vec![
+            M31::new(1), M31::new(2), M31::new(3), M31::new(4),
+        ];
+        assert!(original.len() <= half);
+        
+        let evals = fft.fft(&original);
+        let recovered = fft.ifft(&evals);
+        
+        // Should recover original coefficients
+        for i in 0..original.len() {
+            assert_eq!(recovered[i], original[i], 
+                "Roundtrip failed at {}: got {}, expected {}", 
+                i, recovered[i].value(), original[i].value());
+        }
+    }
+
+    #[test]
+    fn test_poly_mul() {
+        // (1 + x) * (1 + 2x) = 1 + 3x + 2x²
+        let f = vec![M31::new(1), M31::new(1)];
+        let g = vec![M31::new(1), M31::new(2)];
+        let h = poly_mul(&f, &g);
+        
+        assert_eq!(h.len(), 3);
+        assert_eq!(h[0], M31::new(1));
+        assert_eq!(h[1], M31::new(3));
+        assert_eq!(h[2], M31::new(2));
+    }
+
+    #[test]
+    fn test_poly_divmod() {
+        // (2x² + 3x + 1) / (x + 1) = (2x + 1) remainder 0
+        let f = vec![M31::new(1), M31::new(3), M31::new(2)];
+        let g = vec![M31::new(1), M31::new(1)];
+        
+        let (q, r) = poly_divmod(&f, &g);
+        
+        // Verify: f = q*g + r
+        let qg = poly_mul(&q, &g);
+        let reconstructed = poly_add(&qg, &r);
+        
+        for i in 0..f.len() {
+            assert_eq!(reconstructed[i], f[i], "Division check failed at {}", i);
+        }
+    }
+
+    #[test]
+    fn test_lde_extension() {
+        let fft = CircleFFT::new(2);
+        
+        // Polynomial: f(x) = 1 + 2x (degree 1, fits in domain of size 4)
+        let coeffs = vec![M31::new(1), M31::new(2)];
+        let evals = fft.fft(&coeffs);
+        
+        // Extend to domain of size 8
+        let extended = fft.extend(&evals, 1);
+        
+        assert_eq!(extended.len(), 8);
+        
+        // Verify extended evaluations are correct
+        let extended_fft = CircleFFT::new(3);
+        for i in 0..8 {
+            let x = extended_fft.get_domain_point(i).x;
+            let expected = evaluate_poly(&coeffs, x);
+            assert_eq!(extended[i], expected, "LDE mismatch at {}", i);
+        }
+    }
+    
+    #[test]
+    fn test_domain_x_coords_first_half_unique() {
+        // For a domain of size n, verify the first n/2 x-coordinates are unique
+        let domain = CircleDomain::new(4);  // size 16
+        let half = domain.size / 2;
+        
+        let xs: Vec<M31> = (0..half).map(|i| domain.get_point(i).x).collect();
+        
+        // Check uniqueness
+        for i in 0..half {
+            for j in (i+1)..half {
+                assert_ne!(xs[i], xs[j], "Duplicate x at positions {} and {}", i, j);
+            }
         }
     }
 }

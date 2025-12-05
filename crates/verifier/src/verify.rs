@@ -8,8 +8,9 @@
 
 use blake3::Hasher;
 use thiserror::Error;
+
 use crate::channel::VerifierChannel;
-use zp1_primitives::M31;
+use zp1_primitives::{M31, QM31};
 
 /// Verification errors.
 #[derive(Debug, Error)]
@@ -34,49 +35,90 @@ pub enum VerifyError {
 
     #[error("Query index mismatch: expected {expected}, got {got}")]
     QueryIndexMismatch { expected: usize, got: usize },
+
+    #[error("Missing or invalid OOD values: {reason}")]
+    OodError { reason: String },
+
+    #[error("FRI proof structure invalid: {reason}")]
+    FriStructure { reason: String },
 }
 
 /// Verification result.
 pub type VerifyResult<T> = Result<T, VerifyError>;
 
+// Domain separation prefixes for Blake3 hashing (must match prover)
+const LEAF_PREFIX: u8 = 0x00;
+const INTERNAL_PREFIX: u8 = 0x01;
+
+/// Hash a leaf M31 value with domain separation.
+#[inline]
+fn hash_leaf_m31(value: M31) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(&[LEAF_PREFIX]);
+    hasher.update(&value.as_u32().to_le_bytes());
+    *hasher.finalize().as_bytes()
+}
+
+/// Hash two child nodes into a parent (internal node).
+#[inline]
+fn hash_internal(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(&[INTERNAL_PREFIX]);
+    hasher.update(left);
+    hasher.update(right);
+    *hasher.finalize().as_bytes()
+}
+
 /// Merkle proof for verification.
 #[derive(Clone, Debug)]
 pub struct MerkleProof {
-    /// Index of the leaf.
+    /// Index of the leaf (determines left/right at each level).
     pub leaf_index: usize,
     /// Sibling hashes from leaf to root.
     pub path: Vec<[u8; 32]>,
 }
 
 impl MerkleProof {
-    /// Verify this Merkle proof against a root and leaf value.
+    /// Verify this Merkle proof against a root and leaf M31 value.
     pub fn verify(&self, root: &[u8; 32], leaf_value: M31) -> bool {
-        let mut hasher = Hasher::new();
-        hasher.update(&leaf_value.as_u32().to_le_bytes());
-        let mut current = *hasher.finalize().as_bytes();
+        self.verify_hash(root, &hash_leaf_m31(leaf_value))
+    }
 
+    /// Verify this Merkle proof against a root and pre-computed leaf hash.
+    pub fn verify_hash(&self, root: &[u8; 32], leaf_hash: &[u8; 32]) -> bool {
+        let mut current = *leaf_hash;
         let mut idx = self.leaf_index;
 
         for sibling in &self.path {
-            let mut hasher = Hasher::new();
             if idx & 1 == 0 {
-                hasher.update(&current);
-                hasher.update(sibling);
+                // Current is left child, sibling is right
+                current = hash_internal(&current, sibling);
             } else {
-                hasher.update(sibling);
-                hasher.update(&current);
+                // Current is right child, sibling is left
+                current = hash_internal(sibling, &current);
             }
-            current = *hasher.finalize().as_bytes();
-            idx /= 2;
+            idx >>= 1;
         }
 
         current == *root
+    }
+
+    /// Get proof length.
+    pub fn len(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Check if proof is empty.
+    pub fn is_empty(&self) -> bool {
+        self.path.is_empty()
     }
 }
 
 /// FRI layer query proof.
 #[derive(Clone, Debug)]
 pub struct FriLayerQueryProof {
+    /// Value at the queried position.
+    pub value: M31,
     /// Sibling value for folding.
     pub sibling_value: M31,
     /// Merkle proof for the value.
@@ -116,6 +158,8 @@ pub struct QueryProof {
     pub composition_value: M31,
     /// Composition Merkle proof.
     pub composition_proof: MerkleProof,
+    /// DEEP quotient value at query point.
+    pub deep_quotient_value: M31,
 }
 
 /// STARK proof structure.
@@ -125,10 +169,23 @@ pub struct StarkProof {
     pub trace_commitment: [u8; 32],
     /// Merkle commitment to the composition polynomial.
     pub composition_commitment: [u8; 32],
+    /// Out-of-domain sampled values (DEEP/OODS).
+    pub ood_values: OodValues,
     /// FRI proof.
     pub fri_proof: FriProof,
     /// Query proofs for trace and composition.
     pub query_proofs: Vec<QueryProof>,
+}
+
+/// Out-of-domain sample values for DEEP composition.
+#[derive(Clone, Debug)]
+pub struct OodValues {
+    /// Trace values at z for each column.
+    pub trace_at_z: Vec<M31>,
+    /// Trace values at z * g for each column.
+    pub trace_at_z_next: Vec<M31>,
+    /// Composition polynomial at z.
+    pub composition_at_z: M31,
 }
 
 /// STARK verifier configuration.
@@ -197,11 +254,19 @@ impl Verifier {
     pub fn verify(&self, proof: &StarkProof) -> VerifyResult<()> {
         let mut channel = VerifierChannel::new();
 
+        // Sanity check OOD values exist
+        let trace_width = proof.ood_values.trace_at_z.len();
+        if trace_width == 0 || proof.ood_values.trace_at_z_next.len() != trace_width {
+            return Err(VerifyError::OodError {
+                reason: "Trace OOD vectors are empty or mismatched".into(),
+            });
+        }
+
         // Step 1: Absorb trace commitment
         channel.absorb_commitment(&proof.trace_commitment);
 
         // Step 2: Get constraint evaluation challenge (alpha for linear combination)
-        let constraint_alpha = channel.squeeze_extension_challenge();
+        let _constraint_alpha = channel.squeeze_extension_challenge();
 
         // Step 3: Absorb composition commitment
         channel.absorb_commitment(&proof.composition_commitment);
@@ -209,20 +274,29 @@ impl Verifier {
         // Step 4: Get DEEP/OODS sampling point
         let oods_point = channel.squeeze_extension_challenge();
 
-        // Step 5: Process FRI layer commitments and get folding challenges
+        // Step 5: Absorb OOD values into transcript (matches prover flow)
+        for v in &proof.ood_values.trace_at_z {
+            channel.absorb_felt(*v);
+        }
+        for v in &proof.ood_values.trace_at_z_next {
+            channel.absorb_felt(*v);
+        }
+        channel.absorb_felt(proof.ood_values.composition_at_z);
+
+        // Step 6: Process FRI layer commitments and get folding challenges
         let mut fri_alphas = Vec::new();
         for commitment in &proof.fri_proof.layer_commitments {
             channel.absorb_commitment(commitment);
             fri_alphas.push(channel.squeeze_challenge());
         }
 
-        // Step 6: Get query indices (must match prover's)
+        // Step 7: Get query indices (must match prover's)
         let query_indices = channel.squeeze_query_indices(
             self.config.num_queries,
             self.config.lde_domain_size(),
         );
 
-        // Step 7: Verify query count
+        // Step 8: Verify query count
         if proof.query_proofs.len() != self.config.num_queries {
             return Err(VerifyError::InvalidProof {
                 reason: format!(
@@ -233,7 +307,7 @@ impl Verifier {
             });
         }
 
-        // Step 8: Verify each query
+        // Step 9: Verify each query (Merkle + basic consistency)
         for (i, query_proof) in proof.query_proofs.iter().enumerate() {
             // Check query index matches
             if query_proof.index != query_indices[i] {
@@ -243,14 +317,18 @@ impl Verifier {
                 });
             }
 
-            // Verify trace Merkle proof
-            if !query_proof.trace_values.is_empty() {
-                let trace_value = query_proof.trace_values[0];
-                if !query_proof.trace_proof.verify(&proof.trace_commitment, trace_value) {
-                    return Err(VerifyError::MerkleError {
-                        index: query_proof.index,
-                    });
-                }
+            // Verify trace Merkle proof (single-leaf commitment per row)
+            if query_proof.trace_values.len() != trace_width {
+                return Err(VerifyError::ConstraintError {
+                    constraint: format!("Trace width mismatch: expected {}, got {}", trace_width, query_proof.trace_values.len()),
+                });
+            }
+
+            let trace_value = query_proof.trace_values[0];
+            if !query_proof.trace_proof.verify(&proof.trace_commitment, trace_value) {
+                return Err(VerifyError::MerkleError {
+                    index: query_proof.index,
+                });
             }
 
             // Verify composition Merkle proof
@@ -263,18 +341,14 @@ impl Verifier {
                 });
             }
 
-            // Verify constraint consistency
-            self.verify_constraint_consistency(
-                query_proof,
-                &constraint_alpha,
-                &oods_point,
-            )?;
+            // Verify constraint consistency placeholder
+            self.verify_constraint_consistency(query_proof, &oods_point)?;
         }
 
-        // Step 9: Verify FRI
+        // Step 10: Verify FRI
         self.verify_fri(&proof.fri_proof, &fri_alphas)?;
 
-        // Step 10: Verify final polynomial degree
+        // Step 11: Verify final polynomial degree
         if proof.fri_proof.final_poly.len() > self.config.fri_final_degree {
             return Err(VerifyError::DegreeBoundError {
                 got: proof.fri_proof.final_poly.len(),
@@ -289,19 +363,20 @@ impl Verifier {
     fn verify_constraint_consistency(
         &self,
         query: &QueryProof,
-        _constraint_alpha: &zp1_primitives::QM31,
-        _oods_point: &zp1_primitives::QM31,
+        _oods_point: &QM31,
     ) -> VerifyResult<()> {
-        // In a complete implementation, we would:
-        // 1. Evaluate AIR constraints at the query point using trace values
-        // 2. Compute the expected composition polynomial value
-        // 3. Check it matches query.composition_value
-        //
-        // For now, accept if we have valid Merkle proofs (checked above)
-        
+        // Placeholder: ensure values are present. Full AIR evaluation is prover-specific.
         if query.trace_values.is_empty() {
             return Err(VerifyError::ConstraintError {
                 constraint: "Empty trace values".into(),
+            });
+        }
+
+        // Basic sanity: deep quotient should be present
+        if query.deep_quotient_value == M31::ZERO {
+            // Not a hard failure but catch obviously malformed proofs
+            return Err(VerifyError::ConstraintError {
+                constraint: "Deep quotient value missing or zero".into(),
             });
         }
 
@@ -345,37 +420,59 @@ impl Verifier {
         }
 
         let mut current_index = query.index;
+        let mut expected_next: Option<M31> = None;
 
-        for (layer_idx, (layer_proof, &_alpha)) in 
-            query.layer_proofs.iter().zip(alphas.iter()).enumerate() 
-        {
-            // Verify Merkle proof for sibling value
+        for (layer_idx, layer_proof) in query.layer_proofs.iter().enumerate() {
             let commitment = &fri_proof.layer_commitments[layer_idx];
-            let sibling_index = current_index ^ 1;
 
-            // Build Merkle proof verification
-            let merkle_proof = MerkleProof {
-                leaf_index: sibling_index,
+            // Merkle proof for the queried value
+            let merkle = MerkleProof {
+                leaf_index: current_index,
                 path: layer_proof.merkle_proof.clone(),
             };
-
-            if !merkle_proof.verify(commitment, layer_proof.sibling_value) {
+            if !merkle.verify(commitment, layer_proof.value) {
                 return Err(VerifyError::FriError {
                     layer: layer_idx,
                     reason: format!("Merkle verification failed for query {}", query_idx),
                 });
             }
 
-            // Verify folding consistency
-            // For factor-2: f'(x^2) = f_even + alpha * f_odd
-            // The verifier checks that the claimed value is consistent
-            //
-            // In a complete implementation:
-            // let expected = compute_fold(current_value, sibling_value, alpha);
-            // assert!(expected == next_layer_value);
+            // If we already folded from previous layer, ensure value matches expectation
+            if let Some(expected) = expected_next {
+                if layer_proof.value != expected {
+                    return Err(VerifyError::FriError {
+                        layer: layer_idx,
+                        reason: "Fold consistency mismatch".into(),
+                    });
+                }
+            }
 
-            // Move to next layer
+            // Compute folded value for next layer (twin point folding)
+            let alpha = alphas.get(layer_idx).copied().ok_or_else(|| VerifyError::FriStructure {
+                reason: "Missing FRI alpha".into(),
+            })?;
+            let folded = fri_utils::compute_fold(layer_proof.value, layer_proof.sibling_value, alpha);
+            expected_next = Some(folded);
             current_index /= 2;
+        }
+
+        // Final polynomial check
+        if let Some(expected) = expected_next {
+            if fri_proof.final_poly.is_empty() {
+                return Err(VerifyError::FriStructure { reason: "Empty final polynomial".into() });
+            }
+            let final_idx = current_index % fri_proof.final_poly.len();
+            let final_val = fri_proof.final_poly[final_idx];
+            if final_val != expected {
+                return Err(VerifyError::FriError {
+                    layer: fri_proof.layer_commitments.len(),
+                    reason: format!(
+                        "Final polynomial mismatch: expected {}, got {}",
+                        expected.as_u32(),
+                        final_val.as_u32()
+                    ),
+                });
+            }
         }
 
         Ok(())
@@ -388,7 +485,11 @@ pub mod fri_utils {
 
     /// Compute FRI fold: f'(x^2) = f_even + alpha * f_odd
     pub fn compute_fold(even: M31, odd: M31, alpha: M31) -> M31 {
-        even + alpha * odd
+        // For twin-point folding on a circle: 0.5 * [(even + odd) + alpha * (even - odd)]
+        let inv_two = M31::new(2).inv();
+        let sum = even + odd;
+        let diff = even - odd;
+        (sum * inv_two) + alpha * diff * inv_two
     }
 
     /// Evaluate polynomial at a point using Horner's method.
@@ -437,11 +538,9 @@ mod tests {
             path: vec![],
         };
         
-        // Single leaf tree - root equals leaf hash
+        // Single leaf tree - root equals leaf hash (with domain separation)
         let leaf = M31::new(42);
-        let mut hasher = Hasher::new();
-        hasher.update(&leaf.as_u32().to_le_bytes());
-        let root = *hasher.finalize().as_bytes();
+        let root = hash_leaf_m31(leaf);
         
         assert!(proof.verify(&root, leaf));
         assert!(!proof.verify(&root, M31::new(43)));
@@ -454,8 +553,8 @@ mod tests {
         let alpha = M31::new(3);
         
         let folded = fri_utils::compute_fold(even, odd, alpha);
-        // 10 + 3 * 20 = 10 + 60 = 70
-        assert_eq!(folded.as_u32(), 70);
+        // (10+20)/2 + 3*(10-20)/2 = 15 + 3*(-10)/2 = 15 - 15 = 0
+        assert_eq!(folded.as_u32(), 0);
     }
 
     #[test]

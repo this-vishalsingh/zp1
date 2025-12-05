@@ -10,10 +10,13 @@ pub mod gpu;
 pub mod lde;
 pub mod logup;
 pub mod memory;
+pub mod memory_old;
 pub mod parallel;
 pub mod ram;
+pub mod ram_old;
 pub mod recursion;
 pub mod serialize;
+pub mod snark;
 pub mod stark;
 
 pub use commitment::MerkleTree;
@@ -28,3 +31,4 @@ pub use gpu::{GpuBackend, GpuDevice, GpuError, DeviceType, detect_devices};
 pub use recursion::{RecursiveProver, RecursiveProof, RecursionConfig, SegmentedProver};
 pub use ram::{RamArgumentProver, RamAccess, RamOp, RamColumns, ChunkMemorySubtree};
 pub use delegation::{DelegationArgumentProver, DelegationCall, DelegationResult, DelegationType, DelegationColumns, DelegationSubtree};
+pub use snark::{SnarkWrapper, SnarkProof, SnarkVerifier, SnarkSystem, SnarkConfig, SnarkError, groth16_wrapper, plonk_wrapper, halo2_wrapper};

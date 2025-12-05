@@ -13,6 +13,6 @@ pub mod limbs;
 pub mod circle;
 
 pub use field::M31;
-pub use extension::QM31;
+pub use extension::{CM31, QM31, U_SQUARED};
 pub use limbs::{to_limbs, from_limbs};
 pub use circle::{CirclePoint, CircleDomain, CircleFFT, Coset};

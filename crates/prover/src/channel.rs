@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use zp1_primitives::{M31, QM31};
 
 /// Prover channel for Fiat-Shamir transcript.
+#[derive(Clone)]
 pub struct ProverChannel {
     /// SHA256 state.
     hasher: Sha256,

@@ -1,25 +1,199 @@
-//! Quartic extension field over M31.
+//! Quartic extension field over Mersenne31.
 //!
-//! QM31 = M31[x] / (x^4 - 11), providing ~124 bits of security for
-//! lookup grand products and FRI folding challenges.
+//! # Field Tower Construction
 //!
-//! Represented as (a0, a1, a2, a3) where the element is
-//! a0 + a1*w + a2*w^2 + a3*w^3, with w^4 = 11.
+//! We construct QM31 using a tower of two quadratic extensions:
+//!
+//! 1. **CM31 = M31[i]/(i² + 1)** - Complex extension where i² = -1
+//!    - Since M31 ≡ 3 (mod 4), -1 is NOT a quadratic residue, so this is irreducible
+//!    - Elements: a + bi where a, b ∈ M31
+//!    - Conjugate: conj(a + bi) = a - bi
+//!    - Norm: N(z) = z * conj(z) = a² + b² (always in M31)
+//!
+//! 2. **QM31 = CM31[u]/(u² - (2+i))** - Quartic extension where u² = 2 + i
+//!    - (2+i) is NOT a square in CM31, so this is irreducible
+//!    - Elements: z₀ + z₁u where z₀, z₁ ∈ CM31
+//!    - Conjugate: conj(z₀ + z₁u) = z₀ - z₁u
+//!    - Norm: N(α) = α * conj(α) = z₀² - (2+i)z₁² (in CM31)
+//!
+//! This gives |QM31| = (2³¹ - 1)⁴ ≈ 2^124 bits of security.
+//!
+//! # Representation
+//!
+//! QM31 elements are stored as (a, b, c, d) representing:
+//! ```text
+//! a + bi + cu + diu = a + bi + (c + di)u
+//! ```
+//! where:
+//! - a, b, c, d ∈ M31
+//! - i² = -1
+//! - u² = 2 + i
 
-use core::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Neg};
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use crate::field::M31;
 
-/// The constant for the irreducible polynomial: w^4 = W4
-/// We use w^4 = 11 (a small quadratic non-residue in M31).
-const W4: M31 = M31(11);
+// ============================================================================
+// CM31: Complex Extension M31[i]/(i² + 1)
+// ============================================================================
 
-/// An element of the quartic extension field QM31 = M31[w]/(w^4 - 11).
+/// An element of CM31 = M31[i]/(i² + 1).
+///
+/// Represented as a + bi where a, b ∈ M31 and i² = -1.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CM31 {
+    /// Real part
+    pub a: M31,
+    /// Imaginary part (coefficient of i)
+    pub b: M31,
+}
+
+impl CM31 {
+    /// The additive identity.
+    pub const ZERO: Self = Self { a: M31::ZERO, b: M31::ZERO };
+
+    /// The multiplicative identity.
+    pub const ONE: Self = Self { a: M31::ONE, b: M31::ZERO };
+
+    /// The imaginary unit i where i² = -1.
+    pub const I: Self = Self { a: M31::ZERO, b: M31::ONE };
+
+    /// Create a new CM31 element.
+    #[inline]
+    pub const fn new(a: M31, b: M31) -> Self {
+        Self { a, b }
+    }
+
+    /// Embed an M31 element into CM31.
+    #[inline]
+    pub const fn from_base(val: M31) -> Self {
+        Self { a: val, b: M31::ZERO }
+    }
+
+    /// Check if this is a real element (b = 0).
+    #[inline]
+    pub fn is_real(&self) -> bool {
+        self.b.is_zero()
+    }
+
+    /// Check if zero.
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.a.is_zero() && self.b.is_zero()
+    }
+
+    /// Complex conjugate: conj(a + bi) = a - bi.
+    #[inline]
+    pub fn conjugate(self) -> Self {
+        Self { a: self.a, b: -self.b }
+    }
+
+    /// Norm: N(z) = z * conj(z) = a² + b² (result is in M31).
+    #[inline]
+    pub fn norm(self) -> M31 {
+        self.a * self.a + self.b * self.b
+    }
+
+    /// Compute the multiplicative inverse.
+    ///
+    /// For z = a + bi:
+    /// z⁻¹ = conj(z) / N(z) = (a - bi) / (a² + b²)
+    #[inline]
+    pub fn inv(self) -> Self {
+        let n = self.norm();
+        assert!(!n.is_zero(), "cannot invert zero element in CM31");
+        let n_inv = n.inv();
+        Self {
+            a: self.a * n_inv,
+            b: -self.b * n_inv,
+        }
+    }
+
+    /// Square the element.
+    /// (a + bi)² = (a² - b²) + 2abi
+    #[inline]
+    pub fn square(self) -> Self {
+        let two = M31::new(2);
+        Self {
+            a: self.a * self.a - self.b * self.b,
+            b: two * self.a * self.b,
+        }
+    }
+}
+
+impl Add for CM31 {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Self { a: self.a + rhs.a, b: self.b + rhs.b }
+    }
+}
+
+impl AddAssign for CM31 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
+}
+
+impl Sub for CM31 {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        Self { a: self.a - rhs.a, b: self.b - rhs.b }
+    }
+}
+
+impl SubAssign for CM31 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; }
+}
+
+impl Mul for CM31 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        // (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+        Self {
+            a: self.a * rhs.a - self.b * rhs.b,
+            b: self.a * rhs.b + self.b * rhs.a,
+        }
+    }
+}
+
+impl MulAssign for CM31 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) { *self = *self * rhs; }
+}
+
+impl Neg for CM31 {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Self { a: -self.a, b: -self.b }
+    }
+}
+
+impl From<M31> for CM31 {
+    #[inline]
+    fn from(val: M31) -> Self { Self::from_base(val) }
+}
+
+// ============================================================================
+// QM31: Quartic Extension CM31[u]/(u² - (2+i))
+// ============================================================================
+
+/// The non-residue in CM31 used to define the extension: u² = 2 + i.
+pub const U_SQUARED: CM31 = CM31 { a: M31(2), b: M31(1) };
+
+/// An element of QM31 = CM31[u]/(u² - (2+i)).
+///
+/// Represented as z₀ + z₁u where z₀, z₁ ∈ CM31.
+/// Equivalently stored as (a, b, c, d) representing a + bi + cu + diu.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QM31 {
-    /// Coefficients: c0 + c1*w + c2*w^2 + c3*w^3
+    /// Coefficient z₀ = a + bi (constant part)
     pub c0: M31,
     pub c1: M31,
+    /// Coefficient z₁ = c + di (coefficient of u)
     pub c2: M31,
     pub c3: M31,
 }
@@ -27,65 +201,119 @@ pub struct QM31 {
 impl QM31 {
     /// The additive identity.
     pub const ZERO: Self = Self {
-        c0: M31::ZERO,
-        c1: M31::ZERO,
-        c2: M31::ZERO,
-        c3: M31::ZERO,
+        c0: M31::ZERO, c1: M31::ZERO,
+        c2: M31::ZERO, c3: M31::ZERO,
     };
 
     /// The multiplicative identity.
     pub const ONE: Self = Self {
-        c0: M31::ONE,
-        c1: M31::ZERO,
-        c2: M31::ZERO,
-        c3: M31::ZERO,
+        c0: M31::ONE, c1: M31::ZERO,
+        c2: M31::ZERO, c3: M31::ZERO,
     };
 
-    /// Create a new QM31 element.
+    /// Create from four M31 coefficients: a + bi + cu + diu.
     #[inline]
     pub const fn new(c0: M31, c1: M31, c2: M31, c3: M31) -> Self {
         Self { c0, c1, c2, c3 }
     }
 
-    /// Get the c0 coefficient.
+    /// Create from two CM31 elements: z₀ + z₁u.
     #[inline]
-    pub const fn c0(&self) -> M31 {
-        self.c0
+    pub const fn from_cm31(z0: CM31, z1: CM31) -> Self {
+        Self { c0: z0.a, c1: z0.b, c2: z1.a, c3: z1.b }
     }
 
-    /// Get the c1 coefficient.
+    /// Get the z₀ component (constant part).
     #[inline]
-    pub const fn c1(&self) -> M31 {
-        self.c1
+    pub const fn z0(&self) -> CM31 {
+        CM31 { a: self.c0, b: self.c1 }
     }
 
-    /// Get the c2 coefficient.
+    /// Get the z₁ component (coefficient of u).
     #[inline]
-    pub const fn c2(&self) -> M31 {
-        self.c2
-    }
-
-    /// Get the c3 coefficient.
-    #[inline]
-    pub const fn c3(&self) -> M31 {
-        self.c3
+    pub const fn z1(&self) -> CM31 {
+        CM31 { a: self.c2, b: self.c3 }
     }
 
     /// Embed an M31 element into QM31.
     #[inline]
     pub const fn from_base(val: M31) -> Self {
         Self {
-            c0: val,
-            c1: M31::ZERO,
-            c2: M31::ZERO,
-            c3: M31::ZERO,
+            c0: val, c1: M31::ZERO,
+            c2: M31::ZERO, c3: M31::ZERO,
         }
     }
 
-    /// Check if this element is in the base field (c1 = c2 = c3 = 0).
+    /// Embed a CM31 element into QM31.
+    #[inline]
+    pub const fn from_cm31_base(val: CM31) -> Self {
+        Self { c0: val.a, c1: val.b, c2: M31::ZERO, c3: M31::ZERO }
+    }
+
+    /// Check if this element is in the base field M31.
     #[inline]
     pub fn is_base(&self) -> bool {
         self.c1.is_zero() && self.c2.is_zero() && self.c3.is_zero()
+    }
+
+    /// Check if this element is in CM31 (z₁ = 0).
+    #[inline]
+    pub fn is_cm31(&self) -> bool {
+        self.c2.is_zero() && self.c3.is_zero()
+    }
+
+    /// Check if zero.
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.c0.is_zero() && self.c1.is_zero() && self.c2.is_zero() && self.c3.is_zero()
+    }
+
+    /// Conjugate over CM31: conj(z₀ + z₁u) = z₀ - z₁u.
+    #[inline]
+    pub fn conjugate(self) -> Self {
+        Self {
+            c0: self.c0, c1: self.c1,
+            c2: -self.c2, c3: -self.c3,
+        }
+    }
+
+    /// Norm to CM31: N(α) = α * conj(α) = z₀² - (2+i)z₁².
+    #[inline]
+    pub fn norm_cm31(self) -> CM31 {
+        let z0 = self.z0();
+        let z1 = self.z1();
+        // z₀² - (2+i)·z₁²
+        z0 * z0 - U_SQUARED * (z1 * z1)
+    }
+
+    /// Full norm to M31: N_M31(α) = N_CM31(N_QM31(α)).
+    #[inline]
+    pub fn norm_m31(self) -> M31 {
+        self.norm_cm31().norm()
+    }
+
+    /// Compute the multiplicative inverse.
+    ///
+    /// For α = z₀ + z₁u:
+    /// α⁻¹ = conj(α) / N(α)
+    ///     = (z₀ - z₁u) / (z₀² - (2+i)z₁²)
+    ///
+    /// Where the division is in CM31.
+    pub fn inv(self) -> Self {
+        let z0 = self.z0();
+        let z1 = self.z1();
+
+        // Norm in CM31
+        let norm = z0 * z0 - U_SQUARED * (z1 * z1);
+        assert!(!norm.is_zero(), "cannot invert zero element in QM31");
+
+        let norm_inv = norm.inv();
+
+        // α⁻¹ = (z₀ - z₁u) · norm⁻¹
+        let inv_z0 = z0 * norm_inv;
+        let inv_z1 = CM31::ZERO - z1 * norm_inv;
+
+        Self::from_cm31(inv_z0, inv_z1)
     }
 
     /// Square the element.
@@ -94,188 +322,46 @@ impl QM31 {
         self * self
     }
 
-    /// Compute the multiplicative inverse.
-    ///
-    /// Uses the formula for inversion in a degree-4 extension via norm.
-    /// Panics if self is zero.
-    pub fn inv(self) -> Self {
-        // For a quartic extension with w^4 = 11, we use:
-        // Compute via conjugates and norm down to base field.
-        //
-        // The norm N(a) = a * conj1(a) * conj2(a) * conj3(a) is in M31.
-        // Then a^(-1) = conj1(a) * conj2(a) * conj3(a) / N(a).
-        //
-        // For efficiency, we use a tower approach: QM31 = CM31[v]/(v^2 - u)
-        // where CM31 = M31[u]/(u^2 - 11), then v^2 = u.
-        //
-        // Simplified direct computation for now (can be optimized):
-
-        // Compute a * conj(a) in the quadratic subfield, then invert.
-        // This is a standard approach for quartic extensions.
-
-        // For w^4 = 11:
-        // conj(a0 + a1*w + a2*w^2 + a3*w^3) at w -> -w gives:
-        // a0 - a1*w + a2*w^2 - a3*w^3
-        //
-        // But we need all four conjugates for the norm.
-        // Let's use a simpler direct Gaussian elimination approach:
-
-        // Actually, use the standard formula for degree-4 inversion.
-        // a^(-1) = adj(a) / det(a) where we view multiplication as a matrix.
-
-        // For simplicity, compute via repeated conjugates:
-        // Let b = a * conj_w(a) where conj_w swaps sign of odd powers.
-        // b is in M31[w^2], i.e., has form b0 + b2*w^2.
-        // Then compute c = b * conj_{w^2}(b) which is in M31.
-        // Finally a^(-1) = conj_w(a) * conj_{w^2}(b) / c.
-
-        let a = self;
-
-        // conj_w: a0 + a1*w + a2*w^2 + a3*w^3 -> a0 - a1*w + a2*w^2 - a3*w^3
-        let a_conj_w = QM31::new(a.c0, -a.c1, a.c2, -a.c3);
-
-        // b = a * a_conj_w should have c1 = c3 = 0
-        let b = a * a_conj_w;
-        // b is in the subfield M31[w^2], so b.c1 and b.c3 should be zero (or tiny due to reduction)
-        debug_assert!(b.c1.is_zero() && b.c3.is_zero(), "conjugate product not in subfield");
-
-        // b = b0 + b2*w^2. Its conjugate under w^2 -> -w^2 is b0 - b2*w^2.
-        // But w^4 = 11, so (w^2)^2 = 11. In M31[w^2]/(w^4 - 11) = M31[u]/(u^2 - 11):
-        // conj: b0 + b2*u -> b0 - b2*u doesn't work directly since u^2 = 11, not -11.
-        //
-        // For M31[u]/(u^2 - 11), the "conjugate" is the Galois conjugate under u -> -u,
-        // but that's not in the field if 11 is not a square.
-        //
-        // Let's use a different approach: compute norm via resultant.
-        // norm(a) = Res(a(x), x^4 - 11) as polynomial in the coefficients.
-
-        // For practical implementation, use the explicit formula:
-        // Let a = (a0, a1, a2, a3). Multiplication by a is a 4x4 matrix M_a.
-        // det(M_a) is the norm, and adj(M_a) gives the inverse coefficients.
-
-        // Direct 4x4 determinant computation:
-        // Compute det directly:
-        let det = Self::compute_norm(a.c0, a.c1, a.c2, a.c3);
-        assert!(!det.is_zero(), "cannot invert zero element in QM31");
-
-        let det_inv = det.inv();
-
-        // Adjugate coefficients (scaled inverse)
-        let (adj0, adj1, adj2, adj3) = Self::compute_adjugate(a.c0, a.c1, a.c2, a.c3);
-
-        QM31::new(
-            adj0 * det_inv,
-            adj1 * det_inv,
-            adj2 * det_inv,
-            adj3 * det_inv,
-        )
-    }
-
-    /// Compute the norm (determinant of multiplication matrix) for inversion.
-    fn compute_norm(a0: M31, a1: M31, a2: M31, a3: M31) -> M31 {
-        // The multiplication matrix for a = a0 + a1*w + a2*w^2 + a3*w^3 is:
-        // [a0,    11*a3, 11*a2, 11*a1]
-        // [a1,    a0,    11*a3, 11*a2]
-        // [a2,    a1,    a0,    11*a3]
-        // [a3,    a2,    a1,    a0   ]
-        //
-        // This is a circulant-like matrix. The determinant can be computed
-        // via the formula for such matrices.
-
-        let w4 = W4;
-
-        // Using direct expansion (can be optimized with Frobenius):
-        // det = a0^4 + 11*a1^4 + 121*a2^4 + 1331*a3^4
-        //     - 6*a0^2*a2^2*11 - 6*a1^2*a3^2*11
-        //     + ... (cross terms)
-
-        // For correctness, let's compute a * conj products:
-        // N(a) = (a0^2 + 11*a2^2 - 2*11*a1*a3)^2 - 11*(2*a0*a2 - a1^2 - 11*a3^2)^2
-        // This formula comes from the tower: QM31 = CM31[v]/(v^2 - u) where CM31 = M31[u]/(u^2 - 11).
-
-        // Let's define:
-        // In CM31: let z = a0 + a2*u, w_coef = a1 + a3*u (where the element is z + w_coef * v)
-        // Then norm_CM31(z) = a0^2 - 11*a2^2 (Galois conjugate formula for u -> -u)
-        // Wait, that's for u^2 = -11. We have u^2 = 11, so the norm is a0^2 - 11*a2^2 only if we
-        // extend to where 11 has a square root.
-
-        // Simpler: directly compute det of 4x4 using cofactor expansion.
-        // This is O(1) field operations, acceptable for now.
-
-        // Row 0: [a0, 11*a3, 11*a2, 11*a1]
-        // Row 1: [a1, a0,    11*a3, 11*a2]
-        // Row 2: [a2, a1,    a0,    11*a3]
-        // Row 3: [a3, a2,    a1,    a0   ]
-
-        let m00 = a0; let m01 = w4 * a3; let m02 = w4 * a2; let m03 = w4 * a1;
-        let m10 = a1; let m11 = a0;      let m12 = w4 * a3; let m13 = w4 * a2;
-        let m20 = a2; let m21 = a1;      let m22 = a0;      let m23 = w4 * a3;
-        let m30 = a3; let m31 = a2;      let m32 = a1;      let m33 = a0;
-
-        // det = m00 * det3x3(rows 1,2,3 cols 1,2,3) - m01 * det3x3(...) + ...
-        let minor00 = Self::det3(m11, m12, m13, m21, m22, m23, m31, m32, m33);
-        let minor01 = Self::det3(m10, m12, m13, m20, m22, m23, m30, m32, m33);
-        let minor02 = Self::det3(m10, m11, m13, m20, m21, m23, m30, m31, m33);
-        let minor03 = Self::det3(m10, m11, m12, m20, m21, m22, m30, m31, m32);
-
-        m00 * minor00 - m01 * minor01 + m02 * minor02 - m03 * minor03
-    }
-
-    /// 3x3 determinant helper.
+    /// Double the element.
     #[inline]
-    fn det3(a: M31, b: M31, c: M31, d: M31, e: M31, f: M31, g: M31, h: M31, i: M31) -> M31 {
-        a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    pub fn double(self) -> Self {
+        self + self
     }
 
-    /// Compute adjugate matrix first row (gives inverse coefficients when divided by det).
-    #[allow(unused_variables)]
-    fn compute_adjugate(a0: M31, a1: M31, a2: M31, a3: M31) -> (M31, M31, M31, M31) {
-        let w4 = W4;
-
-        let m00 = a0; let m01 = w4 * a3; let m02 = w4 * a2; let m03 = w4 * a1;
-        let m10 = a1; let m11 = a0;      let m12 = w4 * a3; let m13 = w4 * a2;
-        let m20 = a2; let m21 = a1;      let m22 = a0;      let m23 = w4 * a3;
-        let m30 = a3; let m31 = a2;      let m32 = a1;      let m33 = a0;
-
-        // Adjugate first row = cofactors of first column
-        let _adj0 = Self::det3(m11, m12, m13, m21, m22, m23, m31, m32, m33);
-        let _adj1 = -Self::det3(m01, m02, m03, m21, m22, m23, m31, m32, m33);
-        let _adj2 = Self::det3(m01, m02, m03, m11, m12, m13, m31, m32, m33);
-        let _adj3 = -Self::det3(m01, m02, m03, m11, m12, m13, m21, m22, m23);
-
-        // Wait, adjugate transpose: adj[i][j] = (-1)^(i+j) * M[j][i]
-        // For the inverse, we need the first row of adj^T, which is the first column of adj.
-        // The first column of adj is the cofactors of the first row of M.
-
-        // Cofactor C[0][j] = (-1)^j * minor of (0,j)
-        let c00 = Self::det3(m11, m12, m13, m21, m22, m23, m31, m32, m33);
-        let c01 = -Self::det3(m10, m12, m13, m20, m22, m23, m30, m32, m33);
-        let c02 = Self::det3(m10, m11, m13, m20, m21, m23, m30, m31, m33);
-        let c03 = -Self::det3(m10, m11, m12, m20, m21, m22, m30, m31, m32);
-
-        // adj^T first row = [C00, C10, C20, C30]
-        // We need the full adjugate to get all inverse coefficients.
-        // Since a^{-1} = adj(M_a)^T * e_0 / det, where e_0 = (1,0,0,0),
-        // we get a^{-1} = (adj^T)[0] / det = first row of adj^T / det.
-
-        // First row of adj^T = first column of adj = cofactors of first row of M.
-        // These are c00, c01, c02, c03 computed above, but we need column cofactors.
-
-        // Actually, to get a^{-1}, note that M_a * a^{-1} = I, so the first column of M_a^{-1}
-        // gives the representation of 1/a. The first column of M^{-1} = adj(M)^T / det column 0.
-
-        // adj(M)^T column 0 = adj(M) row 0 = cofactors of M row 0.
-        // Cofactor(0,j) = (-1)^j * minor(0,j).
-
-        (c00, c01, c02, c03)
+    /// Exponentiation by squaring.
+    pub fn pow(self, mut exp: u64) -> Self {
+        let mut base = self;
+        let mut result = Self::ONE;
+        while exp > 0 {
+            if exp & 1 == 1 {
+                result = result * base;
+            }
+            base = base * base;
+            exp >>= 1;
+        }
+        result
     }
 
-    #[allow(dead_code)]
-    fn adjugate_and_det(_a0: M31, _a1: M31, _a2: M31, _a3: M31) -> (M31, M31, M31, M31) {
-        // Placeholder; we use compute_norm and compute_adjugate separately.
-        unimplemented!()
-    }
+    /// Get the c0 coefficient.
+    #[inline]
+    pub const fn c0(&self) -> M31 { self.c0 }
+
+    /// Get the c1 coefficient.
+    #[inline]
+    pub const fn c1(&self) -> M31 { self.c1 }
+
+    /// Get the c2 coefficient.
+    #[inline]
+    pub const fn c2(&self) -> M31 { self.c2 }
+
+    /// Get the c3 coefficient.
+    #[inline]
+    pub const fn c3(&self) -> M31 { self.c3 }
 }
+
+// ============================================================================
+// QM31 Arithmetic Operations
+// ============================================================================
 
 impl Add for QM31 {
     type Output = Self;
@@ -293,9 +379,7 @@ impl Add for QM31 {
 
 impl AddAssign for QM31 {
     #[inline]
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
+    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
 }
 
 impl Sub for QM31 {
@@ -314,9 +398,7 @@ impl Sub for QM31 {
 
 impl SubAssign for QM31 {
     #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = *self - rhs;
-    }
+    fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; }
 }
 
 impl Mul for QM31 {
@@ -324,31 +406,27 @@ impl Mul for QM31 {
 
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        // Schoolbook multiplication with reduction using w^4 = 11.
-        let a = self;
-        let b = rhs;
-        let w4 = W4;
+        // (z₀ + z₁u)(w₀ + w₁u) = z₀w₀ + (z₀w₁ + z₁w₀)u + z₁w₁u²
+        //                      = z₀w₀ + (2+i)z₁w₁ + (z₀w₁ + z₁w₀)u
+        let z0 = self.z0();
+        let z1 = self.z1();
+        let w0 = rhs.z0();
+        let w1 = rhs.z1();
 
-        // Product before reduction:
-        // c0 = a0*b0 + 11*(a1*b3 + a2*b2 + a3*b1)
-        // c1 = a0*b1 + a1*b0 + 11*(a2*b3 + a3*b2)
-        // c2 = a0*b2 + a1*b1 + a2*b0 + 11*(a3*b3)
-        // c3 = a0*b3 + a1*b2 + a2*b1 + a3*b0
+        // result_z0 = z₀w₀ + (2+i)z₁w₁
+        let z1w1 = z1 * w1;
+        let result_z0 = z0 * w0 + U_SQUARED * z1w1;
 
-        let c0 = a.c0 * b.c0 + w4 * (a.c1 * b.c3 + a.c2 * b.c2 + a.c3 * b.c1);
-        let c1 = a.c0 * b.c1 + a.c1 * b.c0 + w4 * (a.c2 * b.c3 + a.c3 * b.c2);
-        let c2 = a.c0 * b.c2 + a.c1 * b.c1 + a.c2 * b.c0 + w4 * (a.c3 * b.c3);
-        let c3 = a.c0 * b.c3 + a.c1 * b.c2 + a.c2 * b.c1 + a.c3 * b.c0;
+        // result_z1 = z₀w₁ + z₁w₀
+        let result_z1 = z0 * w1 + z1 * w0;
 
-        Self { c0, c1, c2, c3 }
+        Self::from_cm31(result_z0, result_z1)
     }
 }
 
 impl MulAssign for QM31 {
     #[inline]
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
+    fn mul_assign(&mut self, rhs: Self) { *self = *self * rhs; }
 }
 
 impl Neg for QM31 {
@@ -365,16 +443,122 @@ impl Neg for QM31 {
     }
 }
 
-impl From<M31> for QM31 {
+impl Div for QM31 {
+    type Output = Self;
+
     #[inline]
-    fn from(val: M31) -> Self {
-        Self::from_base(val)
+    fn div(self, rhs: Self) -> Self {
+        self * rhs.inv()
     }
 }
+
+impl DivAssign for QM31 {
+    #[inline]
+    fn div_assign(&mut self, rhs: Self) { *self = *self / rhs; }
+}
+
+impl From<M31> for QM31 {
+    #[inline]
+    fn from(val: M31) -> Self { Self::from_base(val) }
+}
+
+impl From<CM31> for QM31 {
+    #[inline]
+    fn from(val: CM31) -> Self { Self::from_cm31_base(val) }
+}
+
+// ============================================================================
+// Display implementations
+// ============================================================================
+
+impl core::fmt::Display for CM31 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.b.is_zero() {
+            write!(f, "{}", self.a)
+        } else if self.a.is_zero() {
+            write!(f, "{}i", self.b)
+        } else {
+            write!(f, "{} + {}i", self.a, self.b)
+        }
+    }
+}
+
+impl core::fmt::Display for QM31 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({} + {}i) + ({} + {}i)u", self.c0, self.c1, self.c2, self.c3)
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -------------------- CM31 Tests --------------------
+
+    #[test]
+    fn test_cm31_add() {
+        let a = CM31::new(M31::new(3), M31::new(4));
+        let b = CM31::new(M31::new(5), M31::new(6));
+        let c = a + b;
+        assert_eq!(c.a.as_u32(), 8);
+        assert_eq!(c.b.as_u32(), 10);
+    }
+
+    #[test]
+    fn test_cm31_mul() {
+        // (3 + 4i)(5 + 6i) = 15 + 18i + 20i + 24i² = 15 + 38i - 24 = -9 + 38i
+        let a = CM31::new(M31::new(3), M31::new(4));
+        let b = CM31::new(M31::new(5), M31::new(6));
+        let c = a * b;
+        // -9 mod P = P - 9
+        assert_eq!(c.a.as_u32(), M31::P - 9);
+        assert_eq!(c.b.as_u32(), 38);
+    }
+
+    #[test]
+    fn test_cm31_mul_identity() {
+        let a = CM31::new(M31::new(123), M31::new(456));
+        assert_eq!(a * CM31::ONE, a);
+        assert_eq!(CM31::ONE * a, a);
+    }
+
+    #[test]
+    fn test_cm31_conjugate() {
+        let z = CM31::new(M31::new(3), M31::new(4));
+        let conj_z = z.conjugate();
+        assert_eq!(conj_z.a.as_u32(), 3);
+        assert_eq!(conj_z.b.as_u32(), M31::P - 4);
+    }
+
+    #[test]
+    fn test_cm31_norm() {
+        // |3 + 4i|² = 9 + 16 = 25
+        let z = CM31::new(M31::new(3), M31::new(4));
+        assert_eq!(z.norm().as_u32(), 25);
+    }
+
+    #[test]
+    fn test_cm31_inv() {
+        let a = CM31::new(M31::new(123), M31::new(456));
+        let a_inv = a.inv();
+        let prod = a * a_inv;
+        assert_eq!(prod, CM31::ONE);
+    }
+
+    #[test]
+    fn test_cm31_i_squared() {
+        // i² = -1
+        let i = CM31::I;
+        let i_sq = i * i;
+        assert_eq!(i_sq.a.as_u32(), M31::P - 1); // -1
+        assert_eq!(i_sq.b.as_u32(), 0);
+    }
+
+    // -------------------- QM31 Tests --------------------
 
     #[test]
     fn test_qm31_add() {
@@ -390,9 +574,8 @@ mod tests {
     #[test]
     fn test_qm31_mul_identity() {
         let a = QM31::new(M31::new(123), M31::new(456), M31::new(789), M31::new(101112));
-        let one = QM31::ONE;
-        assert_eq!(a * one, a);
-        assert_eq!(one * a, a);
+        assert_eq!(a * QM31::ONE, a);
+        assert_eq!(QM31::ONE * a, a);
     }
 
     #[test]
@@ -406,12 +589,32 @@ mod tests {
     }
 
     #[test]
+    fn test_qm31_mul_cm31() {
+        // Multiplying two CM31 elements should stay in CM31
+        let a = QM31::from_cm31_base(CM31::new(M31::new(3), M31::new(4)));
+        let b = QM31::from_cm31_base(CM31::new(M31::new(5), M31::new(6)));
+        let c = a * b;
+        assert!(c.is_cm31());
+    }
+
+    #[test]
+    fn test_qm31_u_squared() {
+        // u² = 2 + i
+        let u = QM31::from_cm31(CM31::ZERO, CM31::ONE); // 0 + 1·u
+        let u_sq = u * u;
+        // Should be (2 + i) + 0·u
+        assert_eq!(u_sq.c0.as_u32(), 2);
+        assert_eq!(u_sq.c1.as_u32(), 1);
+        assert_eq!(u_sq.c2.as_u32(), 0);
+        assert_eq!(u_sq.c3.as_u32(), 0);
+    }
+
+    #[test]
     fn test_qm31_inv() {
         let a = QM31::new(M31::new(123), M31::new(456), M31::new(789), M31::new(321));
         let a_inv = a.inv();
         let prod = a * a_inv;
 
-        // Should be very close to ONE (exact in finite field)
         assert_eq!(prod.c0.as_u32(), 1);
         assert_eq!(prod.c1.as_u32(), 0);
         assert_eq!(prod.c2.as_u32(), 0);
@@ -424,8 +627,76 @@ mod tests {
         let a = QM31::from_base(M31::new(12345));
         let a_inv = a.inv();
         assert!(a_inv.is_base());
+        assert_eq!(a * a_inv, QM31::ONE);
+    }
 
-        let prod = a * a_inv;
-        assert_eq!(prod, QM31::ONE);
+    #[test]
+    fn test_qm31_inv_cm31() {
+        // Inverting a CM31 element in QM31 should stay in CM31
+        let a = QM31::from_cm31_base(CM31::new(M31::new(123), M31::new(456)));
+        let a_inv = a.inv();
+        assert!(a_inv.is_cm31());
+        assert_eq!(a * a_inv, QM31::ONE);
+    }
+
+    #[test]
+    fn test_qm31_div() {
+        let a = QM31::new(M31::new(100), M31::new(200), M31::new(300), M31::new(400));
+        let b = QM31::new(M31::new(10), M31::new(20), M31::new(30), M31::new(40));
+        let c = a / b;
+        // Verify: b * c = a
+        assert_eq!(b * c, a);
+    }
+
+    #[test]
+    fn test_qm31_pow() {
+        let a = QM31::new(M31::new(2), M31::new(3), M31::new(5), M31::new(7));
+        let a_sq = a.pow(2);
+        assert_eq!(a_sq, a * a);
+
+        let a_cubed = a.pow(3);
+        assert_eq!(a_cubed, a * a * a);
+    }
+
+    #[test]
+    fn test_qm31_conjugate() {
+        let a = QM31::new(M31::new(1), M31::new(2), M31::new(3), M31::new(4));
+        let conj_a = a.conjugate();
+        // conj(z₀ + z₁u) = z₀ - z₁u
+        assert_eq!(conj_a.c0.as_u32(), 1);
+        assert_eq!(conj_a.c1.as_u32(), 2);
+        assert_eq!(conj_a.c2.as_u32(), M31::P - 3);
+        assert_eq!(conj_a.c3.as_u32(), M31::P - 4);
+    }
+
+    #[test]
+    fn test_qm31_norm_is_in_cm31() {
+        let a = QM31::new(M31::new(123), M31::new(456), M31::new(789), M31::new(321));
+        // a * conj(a) should be in CM31 (z₁ = 0)
+        let prod = a * a.conjugate();
+        assert!(prod.is_cm31());
+    }
+
+    #[test]
+    fn test_qm31_associativity() {
+        let a = QM31::new(M31::new(1), M31::new(2), M31::new(3), M31::new(4));
+        let b = QM31::new(M31::new(5), M31::new(6), M31::new(7), M31::new(8));
+        let c = QM31::new(M31::new(9), M31::new(10), M31::new(11), M31::new(12));
+        assert_eq!((a * b) * c, a * (b * c));
+    }
+
+    #[test]
+    fn test_qm31_commutativity() {
+        let a = QM31::new(M31::new(111), M31::new(222), M31::new(333), M31::new(444));
+        let b = QM31::new(M31::new(555), M31::new(666), M31::new(777), M31::new(888));
+        assert_eq!(a * b, b * a);
+    }
+
+    #[test]
+    fn test_qm31_distributivity() {
+        let a = QM31::new(M31::new(1), M31::new(2), M31::new(3), M31::new(4));
+        let b = QM31::new(M31::new(5), M31::new(6), M31::new(7), M31::new(8));
+        let c = QM31::new(M31::new(9), M31::new(10), M31::new(11), M31::new(12));
+        assert_eq!(a * (b + c), a * b + a * c);
     }
 }

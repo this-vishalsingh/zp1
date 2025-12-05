@@ -2,12 +2,44 @@
 //!
 //! This module provides traits and implementations for GPU-accelerated
 //! cryptographic operations used in STARK proving.
+//!
+//! # Supported Backends
+//!
+//! - **Metal**: Apple Silicon GPUs (macOS/iOS)
+//! - **CUDA**: NVIDIA GPUs (requires cuda feature)
+//! - **CPU**: Fallback implementation (always available)
+//!
+//! # Usage
+//!
+//! ```ignore
+//! use zp1_prover::gpu::{detect_devices, DeviceType, get_backend};
+//!
+//! // Detect available devices
+//! let devices = detect_devices();
+//!
+//! // Get the best available backend
+//! let backend = get_backend()?;
+//!
+//! // Use NTT acceleration
+//! backend.ntt_m31(&mut values, log_n)?;
+//! ```
 
 mod backend;
 mod operations;
 
-pub use backend::{GpuBackend, GpuDevice, GpuError, GpuMemory};
+// Platform-specific backends
+#[cfg(target_os = "macos")]
+pub mod metal;
+
+pub mod cuda;
+
+pub use backend::{GpuBackend, GpuDevice, GpuError, GpuMemory, CpuBackend};
 pub use operations::{GpuNtt, GpuPolynomial, GpuMerkle};
+
+#[cfg(target_os = "macos")]
+pub use metal::{MetalBackend, MetalDevice, MetalMemory, METAL_M31_SHADERS};
+
+pub use cuda::{CudaBackend, CudaDevice, CudaMemory, CudaDeviceInfo, CUDA_M31_KERNELS, query_cuda_devices};
 
 /// GPU device type enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +111,63 @@ fn num_cpus() -> usize {
         .unwrap_or(1)
 }
 
+/// Get the best available GPU backend.
+/// 
+/// Priority: Metal (macOS) > CUDA > CPU
+/// 
+/// # Returns
+/// A boxed GpuBackend implementation.
+pub fn get_backend() -> Result<Box<dyn GpuBackend>, GpuError> {
+    // Try Metal on macOS
+    #[cfg(target_os = "macos")]
+    {
+        match MetalBackend::new() {
+            Ok(backend) => return Ok(Box::new(backend)),
+            Err(_) => {} // Fall through to next option
+        }
+    }
+    
+    // Try CUDA (would fail without cuda feature)
+    #[cfg(feature = "cuda")]
+    {
+        match CudaBackend::new(0) {
+            Ok(backend) => return Ok(Box::new(backend)),
+            Err(_) => {} // Fall through to CPU
+        }
+    }
+    
+    // CPU fallback
+    Ok(Box::new(CpuBackend::default()))
+}
+
+/// Get a specific backend by device type.
+pub fn get_backend_for_device(device_type: DeviceType) -> Result<Box<dyn GpuBackend>, GpuError> {
+    match device_type {
+        #[cfg(target_os = "macos")]
+        DeviceType::Metal => Ok(Box::new(MetalBackend::new()?)),
+        
+        #[cfg(not(target_os = "macos"))]
+        DeviceType::Metal => Err(GpuError::DeviceNotAvailable(
+            "Metal is only available on macOS".to_string()
+        )),
+        
+        DeviceType::Cuda => {
+            #[cfg(feature = "cuda")]
+            {
+                Ok(Box::new(CudaBackend::new(0)?))
+            }
+            #[cfg(not(feature = "cuda"))]
+            {
+                Err(GpuError::DeviceNotAvailable(
+                    "CUDA support not compiled. Enable 'cuda' feature.".to_string()
+                ))
+            }
+        }
+        
+        DeviceType::Cpu => Ok(Box::new(CpuBackend::default())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +187,17 @@ mod tests {
         assert_eq!(format!("{}", DeviceType::Cuda), "CUDA");
         assert_eq!(format!("{}", DeviceType::Metal), "Metal");
         assert_eq!(format!("{}", DeviceType::Cpu), "CPU");
+    }
+    
+    #[test]
+    fn test_get_backend() {
+        let backend = get_backend();
+        assert!(backend.is_ok());
+    }
+    
+    #[test]
+    fn test_get_cpu_backend() {
+        let backend = get_backend_for_device(DeviceType::Cpu);
+        assert!(backend.is_ok());
     }
 }

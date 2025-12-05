@@ -246,6 +246,7 @@ fn prove_command(elf_path: &PathBuf, output_path: &PathBuf, max_steps: u64, blow
         blowup_factor: blowup,
         num_queries: queries,
         fri_folding_factor: 2,
+        security_bits: 100,
     };
     
     // Use PC column (padded)
@@ -436,6 +437,7 @@ fn bench_command(log_size: usize) {
         blowup_factor: 8,
         num_queries: 50,
         fri_folding_factor: 2,
+        security_bits: 100,
     };
     
     let mut prover = StarkProver::new(config);

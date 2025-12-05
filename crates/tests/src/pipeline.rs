@@ -85,6 +85,7 @@ mod tests {
             blowup_factor: 8,
             num_queries: 10, // Fewer queries for small trace
             fri_folding_factor: 2,
+            security_bits: 100,
         };
 
         let mut prover = StarkProver::new(config);
@@ -128,6 +129,7 @@ mod tests {
             blowup_factor: 8,
             num_queries: 15,
             fri_folding_factor: 2,
+            security_bits: 100,
         };
 
         // 4. Generate proof using PC column (padded)
@@ -266,6 +268,7 @@ mod tests {
             blowup_factor: 8,
             num_queries: 30,
             fri_folding_factor: 2,
+            security_bits: 100,
         };
 
         let mut prover = StarkProver::new(config);
@@ -304,6 +307,7 @@ mod tests {
             blowup_factor: 8,
             num_queries: 20,
             fri_folding_factor: 2,
+            security_bits: 100,
         };
 
         // 4. Generate proof using PC column
