@@ -4,12 +4,14 @@
 
 pub mod channel;
 pub mod commitment;
+pub mod delegation;
 pub mod fri;
 pub mod gpu;
 pub mod lde;
 pub mod logup;
 pub mod memory;
 pub mod parallel;
+pub mod ram;
 pub mod recursion;
 pub mod serialize;
 pub mod stark;
@@ -24,3 +26,5 @@ pub use parallel::{ParallelConfig, parallel_lde, parallel_merkle_tree, parallel_
 pub use serialize::{SerializableProof, VerificationKey, ProofConfig};
 pub use gpu::{GpuBackend, GpuDevice, GpuError, DeviceType, detect_devices};
 pub use recursion::{RecursiveProver, RecursiveProof, RecursionConfig, SegmentedProver};
+pub use ram::{RamArgumentProver, RamAccess, RamOp, RamColumns, ChunkMemorySubtree};
+pub use delegation::{DelegationArgumentProver, DelegationCall, DelegationResult, DelegationType, DelegationColumns, DelegationSubtree};

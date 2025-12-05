@@ -107,6 +107,30 @@ This design ensures deterministic, fully constrained execution suitable for zero
 - **FRI**: Fast Reed-Solomon IOPP with configurable folding factor
 - **LogUp**: Logarithmic derivative lookup argument for memory/tables
 
+### Memory and Delegation Arguments
+
+| Argument | Purpose | Implementation |
+|----------|---------|----------------|
+| **RAM Argument** | Memory consistency across chunks | "Two Shuffles Make a RAM" permutation with lazy init/teardown |
+| **Delegation Argument** | Precompile circuit calls | Set equality via log-derivative lookup, triggered by CSRRW opcode |
+
+Both arguments use separate memory subtrees for pre-commitment, enabling parallel proving of chunks and delegation circuits.
+
+#### RAM Argument Protocol
+1. Record all memory accesses (addr, value, timestamp, op)
+2. Sort by (address, timestamp) to group accesses
+3. Extract initial/final values per address
+4. Two shuffles prove consistency: exec↔sorted and init↔final
+
+#### Delegation CSR Addresses
+| CSR | Name | Function |
+|-----|------|----------|
+| 0xC00 | DELEG_BLAKE2S | BLAKE2s hash delegation |
+| 0xC01 | DELEG_BLAKE3 | BLAKE3 hash delegation |
+| 0xC10 | DELEG_U256_ADD | U256 addition |
+| 0xC11 | DELEG_U256_MUL | U256 multiplication |
+| 0xC12 | DELEG_U256_MOD | U256 modular reduction |
+
 ### Constraint System
 - 37 AIR constraints for RV32IM instructions
 - Memory read/write consistency via sorted permutation
