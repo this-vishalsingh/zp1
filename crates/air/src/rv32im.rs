@@ -86,12 +86,14 @@ impl Rv32imAir {
             // Memory (memory arg handled separately)
             Constraint { name: "load_addr", degree: 2, index: 31 },
             Constraint { name: "store_addr", degree: 2, index: 32 },
+            Constraint { name: "load_value", degree: 2, index: 33 },
+            Constraint { name: "store_value", degree: 2, index: 34 },
             
             // M extension
-            Constraint { name: "mul_lo", degree: 2, index: 33 },
-            Constraint { name: "mul_hi", degree: 2, index: 34 },
-            Constraint { name: "div", degree: 2, index: 35 },
-            Constraint { name: "rem", degree: 2, index: 36 },
+            Constraint { name: "mul_lo", degree: 2, index: 35 },
+            Constraint { name: "mul_hi", degree: 2, index: 36 },
+            Constraint { name: "div", degree: 2, index: 37 },
+            Constraint { name: "rem", degree: 2, index: 38 },
         ];
         
         Self { constraints }
@@ -170,6 +172,16 @@ pub struct CpuTraceRow {
     pub is_load: M31,
     pub is_store: M31,
     pub mem_addr: M31,
+    pub mem_val_lo: M31,
+    pub mem_val_hi: M31,
+    pub is_lb: M31,
+    pub is_lbu: M31,
+    pub is_lh: M31,
+    pub is_lhu: M31,
+    pub is_lw: M31,
+    pub is_sb: M31,
+    pub is_sh: M31,
+    pub is_sw: M31,
     
     pub is_mul: M31,
     pub is_mulh: M31,
@@ -187,6 +199,7 @@ pub struct CpuTraceRow {
     pub quotient_hi: M31,
     pub remainder_lo: M31,
     pub remainder_hi: M31,
+    pub sb_carry: M31,
     
     // Comparison result (for SLT/SLTU/branches)
     pub lt_result: M31,
@@ -475,31 +488,42 @@ impl ConstraintEvaluator {
         )
     }
     
-    /// Load/Store value constraints.
-    /// NOTE: These are simplified constraints. Full implementation requires:
-    /// 1. Additional trace columns for memory values (mem_val_lo, mem_val_hi)
-    /// 2. Specific selectors for each load/store type (is_lw, is_lb, is_lbu, etc.)
-    /// 3. Sign extension witnesses for LB/LH
-    /// 4. Byte/halfword extraction witnesses for SB/SH
-    /// 
-    /// For now, these are placeholders that will be expanded when trace structure is updated.
-    
-    /// Load value consistency placeholder.
-    /// TODO: Add specific constraints for LW, LB, LBU, LH, LHU with proper trace columns.
+    /// Load value consistency: rd must equal the loaded value (already sign/zero extended).
     #[inline]
-    pub fn load_value_constraint(_row: &CpuTraceRow) -> M31 {
-        // Placeholder: requires mem_val_lo/mem_val_hi trace columns
-        // and specific load type selectors to be added to CpuTraceRow
-        M31::ZERO
+    pub fn load_value_constraint(row: &CpuTraceRow) -> M31 {
+        let two_16 = M31::new(1 << 16);
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        let mem_full = row.mem_val_lo + row.mem_val_hi * two_16;
+
+        // Only enforced when a specific load variant is selected.
+        let load_selector = row.is_lb + row.is_lbu + row.is_lh + row.is_lhu + row.is_lw;
+        load_selector * (rd_full - mem_full)
     }
     
-    /// Store value consistency placeholder.
-    /// TODO: Add specific constraints for SW, SB, SH with proper trace columns.
+    /// Store value consistency:
+    /// - SW: full 32-bit rs2 value must match mem_val.
+    /// - SH: lower 16 bits of rs2 must match mem_val_lo, mem_val_hi must be 0.
+    /// - SB: lower 8 bits of rs2 must match mem_val_lo (using witness `sb_carry`), mem_val_hi must be 0.
     #[inline]
-    pub fn store_value_constraint(_row: &CpuTraceRow) -> M31 {
-        // Placeholder: requires mem_val_lo/mem_val_hi trace columns
-        // and specific store type selectors to be added to CpuTraceRow
-        M31::ZERO
+    pub fn store_value_constraint(row: &CpuTraceRow) -> M31 {
+        let two_8 = M31::new(1 << 8);
+        let two_16 = M31::new(1 << 16);
+
+        let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
+        let mem_full = row.mem_val_lo + row.mem_val_hi * two_16;
+
+        // SW: mem_val == rs2 full word
+        let sw = row.is_sw * (mem_full - rs2_full);
+
+        // SH: mem_val_lo == rs2 lower 16 bits, mem_val_hi == 0
+        let sh_lo = row.is_sh * (row.mem_val_lo - row.rs2_val_lo);
+        let sh_hi = row.is_sh * row.mem_val_hi;
+
+        // SB: mem_val_lo captures rs2 lower 8 bits via witness sb_carry (rs2 = byte + 256*sb_carry)
+        let sb_byte = row.is_sb * (row.rs2_val_lo - row.mem_val_lo - row.sb_carry * two_8);
+        let sb_hi = row.is_sb * row.mem_val_hi;
+
+        sw + sh_lo + sh_hi + sb_byte + sb_hi
     }
     
     /// MUL: rd = (rs1 * rs2)[31:0].
@@ -509,6 +533,14 @@ impl ConstraintEvaluator {
         // rd_val = (rs1 * rs2) mod 2^32
         // Proven via auxiliary columns showing the multiplication
         row.is_mul * M31::ZERO // Placeholder - needs range checks
+    }
+
+    /// MUL high-word constraint placeholder (MULH/MULHU/MULHSU).
+    #[inline]
+    pub fn mul_hi_constraint(row: &CpuTraceRow) -> M31 {
+        // High 32 bits of the product; requires 64-bit witness columns.
+        let selector = row.is_mulh + row.is_mulhsu + row.is_mulhu;
+        selector * M31::ZERO
     }
     
     /// DIV: rd = rs1 / rs2 (signed).
@@ -572,8 +604,11 @@ impl ConstraintEvaluator {
         
         constraints.push(Self::load_addr_constraint(row));
         constraints.push(Self::store_addr_constraint(row));
+        constraints.push(Self::load_value_constraint(row));
+        constraints.push(Self::store_value_constraint(row));
         
         constraints.push(Self::mul_constraint(row));
+        constraints.push(Self::mul_hi_constraint(row));
         constraints.push(Self::div_constraint(row));
         constraints.push(Self::rem_constraint(row));
         
@@ -739,9 +774,8 @@ mod tests {
         assert!(constraints.len() > 20);
         
         // Default row (all zeros) should satisfy most selector-guarded constraints
-        for c in &constraints {
-            // Most should be zero for default row
-            // (some may not be if they don't have selectors)
+        for value in &constraints {
+            let _ = value;
         }
     }
     
@@ -757,6 +791,61 @@ mod tests {
         row.mem_addr = M31::new(0x1010);
         
         let c = ConstraintEvaluator::load_addr_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_load_value_word() {
+        let mut row = CpuTraceRow::default();
+
+        row.is_lw = M31::ONE;
+        row.rd_val_lo = M31::new(0xABCD);
+        row.rd_val_hi = M31::new(0x1234);
+        row.mem_val_lo = M31::new(0xABCD);
+        row.mem_val_hi = M31::new(0x1234);
+
+        let c = ConstraintEvaluator::load_value_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_store_value_byte() {
+        let mut row = CpuTraceRow::default();
+
+        row.is_sb = M31::ONE;
+        row.rs2_val_lo = M31::new(0x1234);
+        row.mem_val_lo = M31::new(0x34);
+        row.mem_val_hi = M31::ZERO;
+        row.sb_carry = M31::new(0x12);
+
+        let c = ConstraintEvaluator::store_value_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_store_value_half() {
+        let mut row = CpuTraceRow::default();
+
+        row.is_sh = M31::ONE;
+        row.rs2_val_lo = M31::new(0xBEEF);
+        row.mem_val_lo = M31::new(0xBEEF);
+        row.mem_val_hi = M31::ZERO;
+
+        let c = ConstraintEvaluator::store_value_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_store_value_word() {
+        let mut row = CpuTraceRow::default();
+
+        row.is_sw = M31::ONE;
+        row.rs2_val_lo = M31::new(0xCAFE);
+        row.rs2_val_hi = M31::new(0xBABE);
+        row.mem_val_lo = M31::new(0xCAFE);
+        row.mem_val_hi = M31::new(0xBABE);
+
+        let c = ConstraintEvaluator::store_value_constraint(&row);
         assert_eq!(c, M31::ZERO);
     }
 }
