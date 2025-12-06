@@ -72,9 +72,10 @@ mod tests {
     fn test_prove_simple_trace() {
         // Build a minimal trace (just a counting column)
         let trace_len = 16; // Small power of 2
-        let mut columns = vec![vec![M31::ZERO; trace_len]];
+        // Create 77 columns to satisfy CpuTraceRow::from_slice
+        let mut columns = vec![vec![M31::ZERO; trace_len]; 77];
 
-        // Fill with incrementing values
+        // Fill first column with incrementing values
         for i in 0..trace_len {
             columns[0][i] = M31::new(i as u32);
         }
@@ -133,14 +134,15 @@ mod tests {
             security_bits: 100,
         };
 
-        // 4. Generate proof using PC column (padded)
-        let mut pc_column = columns.pc.clone();
-        pc_column.resize(padded_len, M31::ZERO);
+        // 4. Generate proof using all columns (padded)
+        let mut columns_vec = columns.to_columns();
+        for col in &mut columns_vec {
+            col.resize(padded_len, M31::ZERO);
+        }
 
-        let trace_for_proof = vec![pc_column];
         let mut prover = StarkProver::new(config);
         let public_inputs = vec![]; // No public inputs
-        let proof = prover.prove(trace_for_proof, &public_inputs);
+        let proof = prover.prove(columns_vec, &public_inputs);
 
         // 5. Check proof was generated
         assert_ne!(proof.trace_commitment, [0u8; 32]);
@@ -261,9 +263,10 @@ mod tests {
         let log_size = 10;
         let trace_len = 1 << log_size;
 
-        let column: Vec<M31> = (0..trace_len)
-            .map(|i| M31::new((i * 7 + 13) as u32 % M31::P))
-            .collect();
+        let mut columns = vec![vec![M31::ZERO; trace_len]; 77];
+        for i in 0..trace_len {
+            columns[0][i] = M31::new((i * 7 + 13) as u32 % M31::P);
+        }
 
         let config = StarkConfig {
             log_trace_len: log_size,
@@ -275,7 +278,7 @@ mod tests {
 
         let mut prover = StarkProver::new(config);
         let public_inputs = vec![]; // No public inputs
-        let proof = prover.prove(vec![column], &public_inputs);
+        let proof = prover.prove(columns, &public_inputs);
 
         assert_ne!(proof.trace_commitment, [0u8; 32]);
         println!("Large trace (2^{} = {} rows) proved successfully!", log_size, trace_len);
@@ -313,14 +316,15 @@ mod tests {
             security_bits: 100,
         };
 
-        // 4. Generate proof using PC column
-        let mut pc_column = columns.pc.clone();
-        pc_column.resize(padded_len, M31::ZERO);
+        // 4. Generate proof using all columns
+        let mut columns_vec = columns.to_columns();
+        for col in &mut columns_vec {
+            col.resize(padded_len, M31::ZERO);
+        }
 
-        let trace_for_proof = vec![pc_column];
         let mut prover = StarkProver::new(config);
         let public_inputs = vec![]; // No public inputs
-        let proof = prover.prove(trace_for_proof, &public_inputs);
+        let proof = prover.prove(columns_vec, &public_inputs);
 
         // 5. Verify proof structure
         assert_ne!(proof.trace_commitment, [0u8; 32]);
