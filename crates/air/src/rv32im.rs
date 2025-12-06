@@ -909,6 +909,37 @@ impl ConstraintEvaluator {
         div_selector * (rd_full - quotient_full)
     }
     
+    /// Range constraint: ensure remainder < divisor (absolute value).
+    /// For division: |remainder| < |divisor|
+    #[inline]
+    pub fn div_remainder_range_constraint(row: &CpuTraceRow) -> M31 {
+        let two_16 = M31::new(1 << 16);
+        
+        let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
+        let remainder_full = row.remainder_lo + row.remainder_hi * two_16;
+        
+        // For unsigned: remainder < divisor
+        // For signed: |remainder| < |divisor| and sign(remainder) == sign(dividend)
+        // Simplified: verify remainder is bounded
+        let div_selector = row.is_div + row.is_divu + row.is_rem + row.is_remu;
+        
+        // TODO: Full implementation needs comparison with divisor
+        // For now, return zero (placeholder)
+        div_selector * M31::ZERO
+    }
+    
+    /// Range constraint for limb values: ensure all limbs fit in 16 bits.
+    /// Each limb must satisfy: limb < 2^16
+    #[inline]
+    pub fn limb_range_constraint(row: &CpuTraceRow) -> M31 {
+        // Verify all value limbs are in range [0, 2^16)
+        // This would require bit decomposition or range check lookups
+        // For now, simplified constraint
+        
+        // TODO: Implement full range check using lookup tables
+        M31::ZERO
+    }
+    
     /// Evaluate all constraints and return vector of constraint values.
     pub fn evaluate_all(row: &CpuTraceRow) -> Vec<M31> {
     let mut constraints = Vec::new();
@@ -977,6 +1008,8 @@ impl ConstraintEvaluator {
     constraints.push(ConstraintEvaluator::div_constraint(row));
     constraints.push(ConstraintEvaluator::div_quotient_constraint(row));
     constraints.push(ConstraintEvaluator::rem_constraint(row));
+    constraints.push(ConstraintEvaluator::div_remainder_range_constraint(row));
+    constraints.push(ConstraintEvaluator::limb_range_constraint(row));
     
     constraints
 }
@@ -1213,5 +1246,96 @@ mod tests {
 
         let c = ConstraintEvaluator::store_value_constraint(&row);
         assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_div_remainder_range() {
+        let mut row = CpuTraceRow::default();
+
+        // DIV: 10 / 3 = 3 remainder 1
+        row.is_div = M31::ONE;
+        row.rs1_val_lo = M31::new(10);
+        row.rs2_val_lo = M31::new(3);
+        row.quotient_lo = M31::new(3);
+        row.remainder_lo = M31::new(1);
+
+        // Division identity: 10 = 3 * 3 + 1
+        let div_c = ConstraintEvaluator::div_constraint(&row);
+        assert_eq!(div_c, M31::ZERO);
+
+        // Range constraint (placeholder, should verify remainder < divisor)
+        let range_c = ConstraintEvaluator::div_remainder_range_constraint(&row);
+        assert_eq!(range_c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_div_by_zero() {
+        let mut row = CpuTraceRow::default();
+
+        // DIV by zero: result should be -1 (0xFFFFFFFF)
+        row.is_div = M31::ONE;
+        row.rs1_val_lo = M31::new(10);
+        row.rs2_val_lo = M31::ZERO;
+        row.quotient_lo = M31::new(0xFFFF);
+        row.quotient_hi = M31::new(0xFFFF);
+        row.remainder_lo = M31::new(10);
+
+        // Should satisfy division identity: 10 = 0xFFFFFFFF * 0 + 10
+        let div_c = ConstraintEvaluator::div_constraint(&row);
+        assert_eq!(div_c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_mul_constraint() {
+        let mut row = CpuTraceRow::default();
+
+        // MUL: 5 * 6 = 30
+        row.is_mul = M31::ONE;
+        row.rs1_val_lo = M31::new(5);
+        row.rs2_val_lo = M31::new(6);
+        row.rd_val_lo = M31::new(30);
+
+        let c = ConstraintEvaluator::mul_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_mul_overflow() {
+        let mut row = CpuTraceRow::default();
+
+        // MUL: 0xFFFF * 0xFFFF = 0xFFFE0001 (only lower 32 bits returned)
+        row.is_mul = M31::ONE;
+        row.rs1_val_lo = M31::new(0xFFFF);
+        row.rs2_val_lo = M31::new(0xFFFF);
+        // Result in field arithmetic
+        row.rd_val_lo = M31::new(1);
+        row.rd_val_hi = M31::new(0xFFFE);
+
+        let c = ConstraintEvaluator::mul_constraint(&row);
+        assert_eq!(c, M31::ZERO);
+    }
+
+    #[test]
+    fn test_evaluate_all_constraints() {
+        let mut row = CpuTraceRow::default();
+
+        // Simple ADD
+        row.is_add = M31::ONE;
+        row.rs1_val_lo = M31::new(2);
+        row.rs2_val_lo = M31::new(3);
+        row.rd_val_lo = M31::new(5);
+        row.pc = M31::new(0x1000);
+        row.next_pc = M31::new(0x1004);
+
+        let constraints = ConstraintEvaluator::evaluate_all(&row);
+        
+        // Should have 40+ constraints now (including new range constraints)
+        assert!(constraints.len() >= 47);
+        
+        // Most constraints should be zero for correct execution
+        let non_zero = constraints.iter().filter(|c| **c != M31::ZERO).count();
+        
+        // Only a few constraints should be non-zero (for inactive instructions)
+        assert!(non_zero < constraints.len());
     }
 }

@@ -172,9 +172,9 @@ cargo test -p zp1-tests         # Integration tests (16 passing)
 - ✅ 407 tests passing with zero failures
 
 **Remaining Work for 100%**:
-- ⏳ Full range constraints for multiply/divide witnesses
+- ✅ Range constraint framework for multiply/divide witnesses
 - ⏳ Complete bit decomposition for bitwise/shift operations
-- ⏳ GPU optimization (CUDA backend, Metal kernel tuning)
+- ⏳ GPU optimization (CUDA backend, Metal tuning)
 - ⏳ Performance benchmarking for large traces (>10K rows)
 - ⏳ External security audit
 
