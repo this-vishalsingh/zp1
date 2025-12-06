@@ -682,6 +682,75 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
+                                    0x1004 => {
+                                        // MODEXP syscall (modular exponentiation for RSA/crypto)
+                                        // a0 = base pointer (32 bytes)
+                                        // a1 = exponent pointer (32 bytes)
+                                        // a2 = modulus pointer (32 bytes)
+                                        // a3 = result pointer (32 bytes)
+                                        
+                                        let base_ptr = self.get_reg(10);
+                                        let exp_ptr = self.get_reg(11);
+                                        let mod_ptr = self.get_reg(12);
+                                        let result_ptr = self.get_reg(13);
+                                        
+                                        // Validate pointers
+                                        if !self.memory.is_valid_range(base_ptr, 32) {
+                                            return Err(ExecutorError::OutOfBounds { addr: base_ptr });
+                                        }
+                                        if !self.memory.is_valid_range(exp_ptr, 32) {
+                                            return Err(ExecutorError::OutOfBounds { addr: exp_ptr });
+                                        }
+                                        if !self.memory.is_valid_range(mod_ptr, 32) {
+                                            return Err(ExecutorError::OutOfBounds { addr: mod_ptr });
+                                        }
+                                        if !self.memory.is_valid_range(result_ptr, 32) {
+                                            return Err(ExecutorError::OutOfBounds { addr: result_ptr });
+                                        }
+                                        
+                                        // Extract input data
+                                        let base_bytes = self.memory.slice(base_ptr, 32)
+                                            .ok_or(ExecutorError::OutOfBounds { addr: base_ptr })?;
+                                        let exp_bytes = self.memory.slice(exp_ptr, 32)
+                                            .ok_or(ExecutorError::OutOfBounds { addr: exp_ptr })?;
+                                        let mod_bytes = self.memory.slice(mod_ptr, 32)
+                                            .ok_or(ExecutorError::OutOfBounds { addr: mod_ptr })?;
+                                        
+                                        // Convert to U256
+                                        let base = zp1_delegation::bigint::U256::from_le_bytes(
+                                            base_bytes.try_into().unwrap()
+                                        );
+                                        let exponent = zp1_delegation::bigint::U256::from_le_bytes(
+                                            exp_bytes.try_into().unwrap()
+                                        );
+                                        let modulus = zp1_delegation::bigint::U256::from_le_bytes(
+                                            mod_bytes.try_into().unwrap()
+                                        );
+                                        
+                                        // Compute modular exponentiation using delegation
+                                        let delegation_call = zp1_delegation::bigint::delegate_u256_modexp(
+                                            &base, &exponent, &modulus
+                                        );
+                                        
+                                        // Convert M31 output limbs back to U256
+                                        let result = zp1_delegation::bigint::U256::from_m31_limbs(&delegation_call.output);
+                                        
+                                        // Write result to memory
+                                        let result_bytes = result.to_le_bytes();
+                                        self.memory.write_slice(result_ptr, &result_bytes)?;
+                                        
+                                        // Record the delegation in trace
+                                        mem_op = MemOp::Modexp {
+                                            base_ptr: base_ptr as usize,
+                                            exp_ptr: exp_ptr as usize,
+                                            mod_ptr: mod_ptr as usize,
+                                            result_ptr: result_ptr as usize,
+                                        };
+                                        
+                                        // Return success (a0 = 0)
+                                        self.set_reg(10, 0);
+                                        next_pc = self.pc.wrapping_add(4);
+                                    }
                                     93 => {
                                         // Linux exit syscall - allow this for program termination
                                         return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });

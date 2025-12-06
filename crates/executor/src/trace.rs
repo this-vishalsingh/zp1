@@ -31,6 +31,8 @@ pub enum MemOp {
     Sha256 { message_ptr: usize, message_len: usize, digest_ptr: usize },
     /// RIPEMD-160 hash operation (delegated to specialized circuit).
     Ripemd160 { message_ptr: usize, message_len: usize, digest_ptr: usize },
+    /// Modular exponentiation (delegated to specialized circuit for RSA/crypto).
+    Modexp { base_ptr: usize, exp_ptr: usize, mod_ptr: usize, result_ptr: usize },
 }
 
 /// Flags indicating instruction class for AIR constraint selection.
