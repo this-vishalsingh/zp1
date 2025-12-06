@@ -172,6 +172,78 @@ enum Commands {
         #[arg(short, long, default_value = "16")]
         log_size: usize,
     },
+    
+    /// Prove a single Ethereum transaction
+    ProveTx {
+        /// RPC endpoint URL
+        #[arg(long, default_value = "http://localhost:8545")]
+        rpc_url: String,
+        
+        /// Transaction hash
+        #[arg(long)]
+        tx_hash: String,
+        
+        /// Output directory for proof
+        #[arg(long, default_value = "./proofs")]
+        output_dir: String,
+    },
+    
+    /// Prove an Ethereum block
+    ProveBlock {
+        /// RPC endpoint URL
+        #[arg(long, default_value = "http://localhost:8545")]
+        rpc_url: String,
+        
+        /// Block number
+        #[arg(long)]
+        block_number: u64,
+        
+        /// Output directory for proofs
+        #[arg(long, default_value = "./proofs")]
+        output_dir: String,
+        
+        /// Enable parallel proving
+        #[arg(long)]
+        parallel: bool,
+        
+        /// Enable GPU acceleration
+        #[arg(long)]
+        gpu: bool,
+    },
+    
+    /// Prove a range of Ethereum blocks
+    ProveBlocks {
+        /// RPC endpoint URL
+        #[arg(long, default_value = "http://localhost:8545")]
+        rpc_url: String,
+        
+        /// Starting block number
+        #[arg(long)]
+        from: u64,
+        
+        /// Ending block number
+        #[arg(long)]
+        to: u64,
+        
+        /// Output directory for proofs
+        #[arg(long, default_value = "./proofs")]
+        output_dir: String,
+        
+        /// Enable parallel proving
+        #[arg(long)]
+        parallel: bool,
+        
+        /// Enable GPU acceleration
+        #[arg(long)]
+        gpu: bool,
+    },
+    
+    /// Verify an Ethereum block proof
+    VerifyBlock {
+        /// Path to block proof file
+        #[arg(long)]
+        proof: PathBuf,
+    },
 }
 
 fn main() {
@@ -207,6 +279,148 @@ fn main() {
         }
         Commands::Bench { log_size } => {
             bench_command(log_size);
+        }
+        Commands::ProveTx { rpc_url, tx_hash, output_dir } => {
+            prove_tx_command(&rpc_url, &tx_hash, &output_dir);
+        }
+        Commands::ProveBlock { rpc_url, block_number, output_dir, parallel, gpu } => {
+            prove_block_command(&rpc_url, block_number, &output_dir, parallel, gpu);
+        }
+        Commands::ProveBlocks { rpc_url, from, to, output_dir, parallel, gpu } => {
+            prove_blocks_command(&rpc_url, from, to, &output_dir, parallel, gpu);
+        }
+        Commands::VerifyBlock { proof } => {
+            verify_block_command(&proof);
+        }
+    }
+}
+
+// Ethereum proving commands
+
+#[tokio::main]
+async fn prove_tx_command(rpc_url: &str, tx_hash_str: &str, output_dir: &str) {
+    println!("🔗 Proving Ethereum transaction: {}", tx_hash_str);
+    println!("   RPC: {}", rpc_url);
+    
+    // TODO: Implement full transaction proving
+    println!("⚠️  Transaction proving not yet fully implemented");
+    println!("   This requires EVM -> RISC-V compilation");
+    println!("   See docs/ETHEREUM_INTEGRATION.md for details");
+}
+
+#[tokio::main]
+async fn prove_block_command(rpc_url: &str, block_number: u64, output_dir: &str, parallel: bool, gpu: bool) {
+    use zp1_ethereum::{BlockProver, ProverConfig};
+    
+    println!("🔗 Proving Ethereum block: {}", block_number);
+    println!("   RPC: {}", rpc_url);
+    println!("   Output: {}", output_dir);
+    println!("   Parallel: {}", parallel);
+    println!("   GPU: {}", gpu);
+    println!();
+    
+    let mut config = ProverConfig::default();
+    config.rpc_url = rpc_url.to_string();
+    config.output_dir = output_dir.to_string();
+    config.parallel = parallel;
+    config.use_gpu = gpu;
+    
+    let start = std::time::Instant::now();
+    
+    match BlockProver::new(config).await {
+        Ok(mut prover) => {
+            match prover.prove_block(block_number).await {
+                Ok(proof) => {
+                    let elapsed = start.elapsed();
+                    println!("✅ Block proof generated successfully!");
+                    println!("   Block: {}", proof.number());
+                    println!("   Transactions: {}", proof.num_transactions());
+                    println!("   Total gas: {}", proof.total_gas());
+                    println!("   Time: {:?}", elapsed);
+                    println!("   Proof saved to: {}/block_{}.json", output_dir, block_number);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to prove block: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to create prover: {}", e);
+            eprintln!("   Make sure your RPC endpoint is accessible");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[tokio::main]
+async fn prove_blocks_command(rpc_url: &str, from: u64, to: u64, output_dir: &str, parallel: bool, gpu: bool) {
+    use zp1_ethereum::{BlockProver, ProverConfig};
+    
+    println!("🔗 Proving Ethereum blocks: {} to {}", from, to);
+    println!("   RPC: {}", rpc_url);
+    println!("   Output: {}", output_dir);
+    println!();
+    
+    let mut config = ProverConfig::default();
+    config.rpc_url = rpc_url.to_string();
+    config.output_dir = output_dir.to_string();
+    config.parallel = parallel;
+    config.use_gpu = gpu;
+    
+    let start = std::time::Instant::now();
+    
+    match BlockProver::new(config).await {
+        Ok(mut prover) => {
+            match prover.prove_block_range(from, to).await {
+                Ok(proofs) => {
+                    let elapsed = start.elapsed();
+                    println!("✅ All blocks proved successfully!");
+                    println!("   Blocks: {} to {}", from, to);
+                    println!("   Total proofs: {}", proofs.len());
+                    println!("   Time: {:?}", elapsed);
+                    println!("   Avg per block: {:?}", elapsed / proofs.len() as u32);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to prove blocks: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to create prover: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn verify_block_command(proof_path: &PathBuf) {
+    use zp1_ethereum::BlockProof;
+    
+    println!("🔍 Verifying Ethereum block proof: {}", proof_path.display());
+    
+    match std::fs::read_to_string(proof_path) {
+        Ok(json) => {
+            match serde_json::from_str::<BlockProof>(&json) {
+                Ok(proof) => {
+                    println!("   Block: {}", proof.number());
+                    println!("   Transactions: {}", proof.num_transactions());
+                    println!("   Total gas: {}", proof.total_gas());
+                    println!("   Commitment: {:02x?}...", &proof.commitment()[..4]);
+                    
+                    // TODO: Implement full verification
+                    println!("✅ Block proof structure valid");
+                    println!("⚠️  Full cryptographic verification not yet implemented");
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to parse proof: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to read proof file: {}", e);
+            std::process::exit(1);
         }
     }
 }

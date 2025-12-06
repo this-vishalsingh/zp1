@@ -8,6 +8,7 @@ members = [
     "crates/prover",
     "crates/verifier",
     "crates/delegation",
+    "crates/ethereum",
     "crates/tests",
     "crates/cli",
 ]
@@ -28,6 +29,7 @@ zp1-air = { path = "crates/air" }
 zp1-prover = { path = "crates/prover" }
 zp1-verifier = { path = "crates/verifier" }
 zp1-delegation = { path = "crates/delegation" }
+zp1-ethereum = { path = "crates/ethereum" }
 
 # External dependencies
 rand = "0.8"
