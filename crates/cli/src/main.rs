@@ -363,7 +363,9 @@ fn prove_command(
     }
     
     // Pad to power of 2
-    let padded_len = trace_len.next_power_of_two();
+    let mut columns = columns;
+    columns.pad_to_power_of_two();
+    let padded_len = columns.len();
     let log_trace_len = padded_len.trailing_zeros() as usize;
     
     // Build trace for proving
@@ -378,12 +380,10 @@ fn prove_command(
         security_bits: 100,
     };
     
-    // Use PC column (padded)
-    let mut trace_column = columns.pc.clone();
-    trace_column.resize(padded_len, M31::ZERO);
+    let trace_columns = columns.to_columns();
     
     let mut prover = StarkProver::new(config.clone());
-    let proof = prover.prove(vec![trace_column], &[]);
+    let proof = prover.prove(trace_columns, &[]);
     
     println!("       Proof generated ({:?})", prove_start.elapsed());
     println!("       FRI layers: {}", proof.fri_proof.layer_commitments.len());
