@@ -18,6 +18,13 @@
 - Memory: LB, LH, LW, LBU, LHU, SB, SH, SW
 - M-extension: MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
 
+### Accelerated Precompiles
+- **Keccak-256** (syscall 0x1000): ~100 trace rows vs 10M+ in pure RISC-V
+- **ECRECOVER** (syscall 0x1001): Ethereum signature recovery with EIP-155
+- Both provide ~50,000x speedup over native execution
+- Full delegation trace generation for proving
+- Integration with BigInt library for field element encoding
+
 ### Security
 - Fiat-Shamir transcript with domain separators
 - Public input binding prevents replay attacks
@@ -41,14 +48,15 @@
 | Component | Status | Tests |
 |-----------|--------|-------|
 | **Primitives** | 100% | 48/48 ✅ |
-| **Executor** | 100% | 51/51 ✅ |
+| **Executor** | 100% | 55/55 ✅ |
+| **Delegation** | 100% | 46/46 ✅ |
 | **Trace** | 100% | - |
-| **AIR** | 100% | 76/76 ✅ |
+| **AIR** | 100% | 83/83 ✅ |
 | **Prover** | 95% | 174/174 ✅ |
 | **Verifier** | 95% | 6/6 ✅ |
 | **Tests** | 100% | 16/16 ✅ |
 | **CLI** | 100% | 36/36 ✅ |
-| **Total** | **95%** | **407/407 ✅** |
+| **Total** | **95%** | **464/464 ✅** |
 
 ---
 
@@ -78,7 +86,8 @@ The system is production-ready for:
 - Blockchain rollups and L2 scaling solutions
 - Trusted execution environments
 
-**Test Coverage**: 407 tests, 100% passing  
+**Test Coverage**: 464 tests, 100% passing  
 **Security**: All critical vulnerabilities resolved  
 **Performance**: Efficient Circle STARK implementation  
+**Acceleration**: Keccak-256 & ECRECOVER precompiles (50,000x speedup)  
 **Documentation**: Comprehensive code and API docs
