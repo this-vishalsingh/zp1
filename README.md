@@ -36,9 +36,34 @@ air/          Constraint functions for all RV32IM instructions
 prover/       STARK prover, LDE, composition
 verifier/     FRI verification, DEEP queries
 delegation/   Precompile circuits (BLAKE2/3, U256)
+ethereum/     🆕 Ethereum block proving (framework ready)
 cli/          Command-line interface
 tests/        Integration tests
 ```
+
+## 🆕 Ethereum Block Proving
+
+Generate STARK proofs for Ethereum block execution! The framework is ready:
+
+```bash
+# Prove a single block
+./target/release/zp1 prove-block --rpc-url http://localhost:8545 --block-number 12345
+
+# Prove multiple blocks
+./target/release/zp1 prove-blocks --rpc-url YOUR_RPC --from 12345 --to 12350 --parallel
+```
+
+**Status:** Framework complete (40%), EVM integration in progress.  
+**Documentation:** See [`docs/ETHEREUM_QUICKSTART.md`](docs/ETHEREUM_QUICKSTART.md)
+
+**Key Features:**
+- ✅ Block fetching from any RPC endpoint
+- ✅ Transaction batching and parallel proving
+- ✅ Proof aggregation with Merkle trees
+- ✅ CLI commands ready to use
+- 🚧 EVM→RISC-V execution (next phase)
+- 🚧 Precompile delegation
+- 🚧 State proof verification
 
 ## Build
 
