@@ -4,7 +4,9 @@ Zero-knowledge prover for RISC-V RV32IM execution traces using Circle STARKs ove
 
 ## Status
 
-**Current: 95% complete - Production-Ready (v1.0-rc1)**
+> WARNING: This codebase is experimental and has not been audited. DO NOT USE FOR PRODUCTION!
+
+**Current: 95% complete**
 
 - ✅ All RV32IM instruction constraint functions fully implemented (47 instructions)
 - ✅ All critical soundness vulnerabilities fixed (5/5 CVEs)
@@ -14,7 +16,7 @@ Zero-knowledge prover for RISC-V RV32IM execution traces using Circle STARKs ove
 - ✅ 407 tests passing (100% pass rate)
 - ✅ Tested with real programs (Fibonacci, counting, arithmetic)
 
-**Production-ready for most use cases.** Remaining 5%: range constraints optimization and GPU acceleration.
+Remaining 5%: range constraints optimization and GPU acceleration.
 
 ## Architecture
 
@@ -142,12 +144,12 @@ cargo test -p zp1-tests         # Integration tests (16 passing)
 
 **Verifier**: 50ms - 1s depending on proof size
 
-**Platform**: Apple M1 Pro (2021), single-threaded
+
 
 ## Development Status
 
 **Phase 1 Complete**:
-- ✅ Fixed all critical soundness vulnerabilities (5/5 CVEs)
+- ✅ Fixed all critical soundness vulnerabilities ()
 - ✅ Fiat-Shamir transcript alignment
 - ✅ Domain separator + public input binding
 - ✅ x0 register enforcement
