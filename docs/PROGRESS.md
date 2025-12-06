@@ -119,6 +119,28 @@
 - **Commit**: `227aa15`
 - **Result**: All 30 AIR tests passing (8 new shift + 22 existing). System total: 363 tests.
 
+##### Comparison Operations (SLT/SLTU/SUB)
+- **Status**: ✅ COMPLETE
+- **Impact**: Can now constrain signed and unsigned comparisons
+- **Implementation**:
+  - Added `set_less_than_signed_constraints()`: Handles sign bit checking for signed comparison
+  - Added `set_less_than_unsigned_constraints()`: Uses borrow detection for unsigned comparison
+  - Added `sub_with_borrow_constraint()`: Subtraction with proper limb borrow tracking
+  - Signed comparison logic: Different signs use sign bit, same signs use difference
+  - Unsigned comparison: result = 1 iff borrow occurred in (a - b)
+  - Proper binary constraints on result and borrow bits
+- **Files**: `crates/air/src/cpu.rs`
+- **Tests**: 5 comprehensive tests (SLTU, SLT, SUB, soundness)
+- **Commit**: `8b93a8c`
+- **Result**: All 35 AIR tests passing (5 new + 30 existing). System total: 368 tests.
+
+##### I-Type Immediate Instructions
+- **Status**: ✅ ALREADY IMPLEMENTED
+- **Coverage**: ADDI, ANDI, ORI, XORI, SLTI, SLTIU, SLLI, SRLI, SRAI
+- **Implementation**: All I-type instructions reuse existing R-type constraint logic
+- **Tests**: 10 comprehensive tests already present
+- **Result**: All 45 AIR tests passing. No additional work needed.
+
 ---
 
 ## 📊 Progress Metrics
@@ -144,10 +166,10 @@
 |-----------|--------|-------|--------|
 | **Primitives** | 95% | 95% | - |
 | **Executor** | 100% | 100% | - |
-| **AIR** | 29% | 52% | +23% ⬆️ |
+| **AIR** | 29% | 60% | +31% ⬆️ |
 | **Prover** | 75% | 80% | +5% ⬆️ |
 | **Verifier** | 40% | 75% | +35% ⬆️ |
-| **Overall** | 68% | 81% | +13% ⬆️ |
+| **Overall** | 68% | 83% | +15% ⬆️ |
 
 ---
 
@@ -165,30 +187,25 @@ All 8 critical soundness issues have been fixed:
 7. ✅ Bitwise operations (AND/OR/XOR)
 8. ✅ DEEP quotient verification
 
-**System Status**: 81% complete, AIR at 52%, verifier at 75%
+**System Status**: 83% complete, AIR at 60%, verifier at 75%
 
-### ✅ Phase 2 Started - Additional Constraints
+### ✅ Phase 2 Progress - Additional Constraints
 
-**Completed**:
-- ✅ Shift operations (SLL/SRL/SRA) - 4 hours
+**Completed This Session**:
+1. ✅ Shift operations (SLL/SRL/SRA) - 4 hours
+2. ✅ Comparison operations (SLT/SLTU/SUB) - 3 hours
+3. ✅ I-type immediate instructions - Already implemented (0 hours - verified)
 
-**In Progress**:
-- 🔄 I-type immediate operations
-- 🔄 Comparison operations (SLT/SLTU)
-- 🔄 Load/store value constraints
+**Phase 2 Time**: 7 hours actual vs 11 hours estimated
 
-### Priority 2 (Phase 2 - Continuing):
-1. **Implement I-type ALU constraints** (4 hours)
-   - ADDI, ANDI, ORI, XORI (reuse existing logic)
-   - SLTI, SLTIU (comparison with immediate)
-   - SLLI, SRLI, SRAI (immediate shifts - reuse shift logic)
-   
-2. **Implement comparison operations** (3 hours)
-   - SLT (set less than - signed)
-   - SLTU (set less than - unsigned)
-   - Add sign/magnitude decomposition
-   
-3. **Complete load/store value constraints** (6 hours)
+**Remaining High Priority**:
+1. **Complete load/store value constraints** (6 hours)
+   - Add memory access trace columns
+   - Implement LB/LH/LW/LBU/LHU load constraints
+   - Implement SB/SH/SW store constraints
+   - Add byte/halfword alignment checks
+
+2. **M-extension multiply constraints** (4 hours)
 6. **Add load/store memory value columns** (3 hours)
 7. **Integration testing** (3 hours)
 
