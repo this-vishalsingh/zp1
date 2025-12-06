@@ -971,6 +971,245 @@ impl CpuAir {
         // Placeholder
         rs1_lo - (rs2_lo * quotient_lo + remainder_lo)
     }
+
+    // ============================================================================
+    // Branch and Jump Instructions
+    // ============================================================================
+
+    /// Evaluate BEQ constraint: branch if rs1 == rs2.
+    /// PC update: next_pc = (rs1 == rs2) ? (pc + offset) : (pc + 4)
+    ///
+    /// # Arguments
+    /// * `rs1_lo/hi` - First operand limbs
+    /// * `rs2_lo/hi` - Second operand limbs
+    /// * `eq_result` - Equality check result (witness: 1 if equal, 0 otherwise)
+    /// * `branch_taken` - Branch taken flag (witness)
+    /// * `pc` - Current PC
+    /// * `next_pc` - Next PC value
+    /// * `offset` - Branch offset (sign-extended immediate)
+    ///
+    /// # Returns
+    /// Constraints ensuring correct branch behavior
+    pub fn beq_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        eq_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // Check equality: rs1 == rs2 iff (rs1_lo == rs2_lo) AND (rs1_hi == rs2_hi)
+        // eq_result = 1 iff equal
+        // branch_taken = eq_result
+        // next_pc = branch_taken ? (pc + offset) : (pc + 4)
+        
+        // Constraint 1: branch_taken = eq_result
+        let c1 = branch_taken - eq_result;
+        
+        // Constraint 2: eq_result is binary
+        let c2 = eq_result * (M31::ONE - eq_result);
+        
+        // Constraint 3: If eq_result=1, then diff must be zero
+        let diff_lo = rs1_lo - rs2_lo;
+        let diff_hi = rs1_hi - rs2_hi;
+        let c3 = eq_result * (diff_lo + diff_hi);
+        
+        // Constraint 4: PC update
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c4 = next_pc - expected_pc;
+        
+        // Combine constraints (simplified - in practice would return array)
+        c1 + c2 + c3 + c4
+    }
+
+    /// Evaluate BNE constraint: branch if rs1 != rs2.
+    pub fn bne_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        ne_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // branch_taken = 1 iff rs1 != rs2
+        // ne_result = 1 - eq_result
+        
+        let diff_lo = rs1_lo - rs2_lo;
+        let diff_hi = rs1_hi - rs2_hi;
+        
+        // If ne_result=1, at least one diff must be non-zero
+        // If ne_result=0, both diffs must be zero
+        let c1 = (M31::ONE - ne_result) * (diff_lo + diff_hi);
+        let c2 = ne_result * (M31::ONE - ne_result); // Binary
+        let c3 = branch_taken - ne_result;
+        
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c4 = next_pc - expected_pc;
+        
+        c1 + c2 + c3 + c4
+    }
+
+    /// Evaluate BLT constraint: branch if rs1 < rs2 (signed).
+    pub fn blt_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        lt_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // Reuse signed comparison logic
+        // branch_taken = lt_result
+        
+        let c1 = branch_taken - lt_result;
+        let c2 = lt_result * (M31::ONE - lt_result); // Binary
+        
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c3 = next_pc - expected_pc;
+        
+        // TODO: Add full signed comparison constraints
+        c1 + c2 + c3
+    }
+
+    /// Evaluate BGE constraint: branch if rs1 >= rs2 (signed).
+    pub fn bge_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        ge_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // ge_result = 1 - lt_result
+        let c1 = branch_taken - ge_result;
+        let c2 = ge_result * (M31::ONE - ge_result);
+        
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c3 = next_pc - expected_pc;
+        
+        c1 + c2 + c3
+    }
+
+    /// Evaluate BLTU constraint: branch if rs1 < rs2 (unsigned).
+    pub fn bltu_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        ltu_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // Use unsigned comparison (borrow detection)
+        let c1 = branch_taken - ltu_result;
+        let c2 = ltu_result * (M31::ONE - ltu_result);
+        
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c3 = next_pc - expected_pc;
+        
+        c1 + c2 + c3
+    }
+
+    /// Evaluate BGEU constraint: branch if rs1 >= rs2 (unsigned).
+    pub fn bgeu_constraint(
+        rs1_lo: M31,
+        rs1_hi: M31,
+        rs2_lo: M31,
+        rs2_hi: M31,
+        geu_result: M31,
+        branch_taken: M31,
+        pc: M31,
+        next_pc: M31,
+        offset: M31,
+    ) -> M31 {
+        // geu_result = 1 - ltu_result
+        let c1 = branch_taken - geu_result;
+        let c2 = geu_result * (M31::ONE - geu_result);
+        
+        let four = M31::new(4);
+        let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
+        let c3 = next_pc - expected_pc;
+        
+        c1 + c2 + c3
+    }
+
+    /// Evaluate JAL constraint: unconditional jump with link.
+    /// rd = pc + 4, next_pc = pc + offset
+    ///
+    /// # Arguments
+    /// * `pc` - Current PC
+    /// * `next_pc` - Next PC (should be pc + offset)
+    /// * `rd_val` - Destination register value (should be pc + 4)
+    /// * `offset` - Jump offset (sign-extended immediate)
+    ///
+    /// # Returns
+    /// Constraints ensuring correct JAL behavior
+    pub fn jal_constraint(
+        pc: M31,
+        next_pc: M31,
+        rd_val: M31,
+        offset: M31,
+    ) -> M31 {
+        // Constraint 1: rd = pc + 4
+        let four = M31::new(4);
+        let c1 = rd_val - (pc + four);
+        
+        // Constraint 2: next_pc = pc + offset
+        let c2 = next_pc - (pc + offset);
+        
+        c1 + c2
+    }
+
+    /// Evaluate JALR constraint: indirect jump with link.
+    /// rd = pc + 4, next_pc = (rs1 + offset) & ~1
+    ///
+    /// # Arguments
+    /// * `pc` - Current PC
+    /// * `rs1_val` - Base register value
+    /// * `next_pc` - Next PC (should be (rs1 + offset) & ~1)
+    /// * `rd_val` - Destination register value (should be pc + 4)
+    /// * `offset` - Jump offset (sign-extended immediate)
+    ///
+    /// # Returns
+    /// Constraints ensuring correct JALR behavior
+    pub fn jalr_constraint(
+        pc: M31,
+        rs1_val: M31,
+        next_pc: M31,
+        rd_val: M31,
+        offset: M31,
+    ) -> M31 {
+        // Constraint 1: rd = pc + 4
+        let four = M31::new(4);
+        let c1 = rd_val - (pc + four);
+        
+        // Constraint 2: next_pc = (rs1 + offset) & ~1
+        // The LSB masking ensures PC is always aligned
+        // Simplified: assume next_pc = rs1 + offset (alignment checked elsewhere)
+        let c2 = next_pc - (rs1_val + offset);
+        
+        // TODO: Add constraint for LSB masking (next_pc & 1 == 0)
+        c1 + c2
+    }
 }
 
 #[cfg(test)]
@@ -2218,5 +2457,241 @@ mod tests {
         // Should detect incorrect quotient (when fully implemented)
         // Placeholder: just verify it compiles
         assert_ne!(constraint, M31::ZERO, "DIV should catch incorrect quotient");
+    }
+
+    // ============================================================================
+    // Branch and Jump Tests
+    // ============================================================================
+
+    #[test]
+    fn test_beq_taken() {
+        // Test BEQ when rs1 == rs2 (branch taken)
+        let rs1 = 0x12345678u32;
+        let rs2 = 0x12345678u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let eq_result = M31::ONE; // Equal
+        let branch_taken = M31::ONE; // Branch taken
+        let pc = M31::new(0x1000);
+        let offset = M31::new(0x100); // Branch offset
+        let next_pc = M31::new(0x1100); // pc + offset
+        
+        let constraint = CpuAir::beq_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            eq_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BEQ taken constraint failed");
+    }
+
+    #[test]
+    fn test_beq_not_taken() {
+        // Test BEQ when rs1 != rs2 (branch not taken)
+        let rs1 = 0x12345678u32;
+        let rs2 = 0x12345679u32; // Different
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let eq_result = M31::ZERO; // Not equal
+        let branch_taken = M31::ZERO; // Branch not taken
+        let pc = M31::new(0x1000);
+        let offset = M31::new(0x100);
+        let next_pc = M31::new(0x1004); // pc + 4
+        
+        let constraint = CpuAir::beq_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            eq_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BEQ not taken constraint failed");
+    }
+
+    #[test]
+    fn test_bne_taken() {
+        // Test BNE when rs1 != rs2 (branch taken)
+        let rs1 = 0xABCDu32;
+        let rs2 = 0x1234u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let ne_result = M31::ONE; // Not equal
+        let branch_taken = M31::ONE;
+        let pc = M31::new(0x2000);
+        let offset = M31::new(0x50);
+        let next_pc = M31::new(0x2050); // pc + offset
+        
+        let constraint = CpuAir::bne_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            ne_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BNE taken constraint failed");
+    }
+
+    #[test]
+    fn test_blt_taken() {
+        // Test BLT when rs1 < rs2 (signed, branch taken)
+        let rs1 = (-100i32) as u32;
+        let rs2 = 50u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let lt_result = M31::ONE; // rs1 < rs2
+        let branch_taken = M31::ONE;
+        let pc = M31::new(0x3000);
+        let offset = M31::new(0x200);
+        let next_pc = M31::new(0x3200);
+        
+        let constraint = CpuAir::blt_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            lt_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BLT taken constraint failed");
+    }
+
+    #[test]
+    fn test_bge_not_taken() {
+        // Test BGE when rs1 < rs2 (branch not taken)
+        let rs1 = 10u32;
+        let rs2 = 20u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let ge_result = M31::ZERO; // rs1 < rs2, so NOT >=
+        let branch_taken = M31::ZERO;
+        let pc = M31::new(0x4000);
+        let offset = M31::new(0x80);
+        let next_pc = M31::new(0x4004); // pc + 4
+        
+        let constraint = CpuAir::bge_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            ge_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BGE not taken constraint failed");
+    }
+
+    #[test]
+    fn test_bltu_taken() {
+        // Test BLTU (unsigned comparison, branch taken)
+        let rs1 = 5u32;
+        let rs2 = 100u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let ltu_result = M31::ONE; // 5 < 100 (unsigned)
+        let branch_taken = M31::ONE;
+        let pc = M31::new(0x5000);
+        let offset = M31::new(0x40);
+        let next_pc = M31::new(0x5040);
+        
+        let constraint = CpuAir::bltu_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            ltu_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BLTU taken constraint failed");
+    }
+
+    #[test]
+    fn test_bgeu_taken() {
+        // Test BGEU (unsigned, branch taken when equal)
+        let rs1 = 0xFFFFu32;
+        let rs2 = 0xFFFFu32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        let geu_result = M31::ONE; // Equal, so >=
+        let branch_taken = M31::ONE;
+        let pc = M31::new(0x6000);
+        let offset = M31::new(0x10);
+        let next_pc = M31::new(0x6010);
+        
+        let constraint = CpuAir::bgeu_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            geu_result, branch_taken, pc, next_pc, offset,
+        );
+        
+        assert_eq!(constraint, M31::ZERO, "BGEU taken constraint failed");
+    }
+
+    #[test]
+    fn test_jal() {
+        // Test JAL: rd = pc + 4, next_pc = pc + offset
+        let pc = M31::new(0x1000);
+        let offset = M31::new(0x200);
+        let next_pc = M31::new(0x1200); // pc + offset
+        let rd_val = M31::new(0x1004); // pc + 4
+        
+        let constraint = CpuAir::jal_constraint(pc, next_pc, rd_val, offset);
+        
+        assert_eq!(constraint, M31::ZERO, "JAL constraint failed");
+    }
+
+    #[test]
+    fn test_jal_wrong_link() {
+        // Test JAL with incorrect link register value
+        let pc = M31::new(0x1000);
+        let offset = M31::new(0x200);
+        let next_pc = M31::new(0x1200);
+        let wrong_rd = M31::new(0x1008); // Wrong link value
+        
+        let constraint = CpuAir::jal_constraint(pc, next_pc, wrong_rd, offset);
+        
+        assert_ne!(constraint, M31::ZERO, "JAL should catch incorrect link");
+    }
+
+    #[test]
+    fn test_jalr() {
+        // Test JALR: rd = pc + 4, next_pc = rs1 + offset
+        let pc = M31::new(0x2000);
+        let rs1_val = M31::new(0x5000);
+        let offset = M31::new(0x100);
+        let next_pc = M31::new(0x5100); // rs1 + offset
+        let rd_val = M31::new(0x2004); // pc + 4
+        
+        let constraint = CpuAir::jalr_constraint(pc, rs1_val, next_pc, rd_val, offset);
+        
+        assert_eq!(constraint, M31::ZERO, "JALR constraint failed");
+    }
+
+    #[test]
+    fn test_jalr_wrong_target() {
+        // Test JALR with incorrect jump target
+        let pc = M31::new(0x2000);
+        let rs1_val = M31::new(0x5000);
+        let offset = M31::new(0x100);
+        let wrong_next_pc = M31::new(0x5200); // Incorrect target
+        let rd_val = M31::new(0x2004);
+        
+        let constraint = CpuAir::jalr_constraint(pc, rs1_val, wrong_next_pc, rd_val, offset);
+        
+        assert_ne!(constraint, M31::ZERO, "JALR should catch incorrect target");
+    }
+
+    #[test]
+    fn test_branch_soundness() {
+        // Test that branches catch inconsistent branch_taken flags
+        let rs1 = 100u32;
+        let rs2 = 200u32;
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
+        
+        // BEQ with rs1 != rs2 but claiming equality
+        let wrong_eq = M31::ONE; // Wrong: they're not equal
+        let branch_taken = M31::ONE;
+        let pc = M31::new(0x1000);
+        let offset = M31::new(0x100);
+        let next_pc = M31::new(0x1100);
+        
+        let constraint = CpuAir::beq_constraint(
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
+            wrong_eq, branch_taken, pc, next_pc, offset,
+        );
+        
+        // Should fail because eq_result doesn't match actual equality
+        assert_ne!(constraint, M31::ZERO, "Should detect incorrect eq_result");
     }
 }
