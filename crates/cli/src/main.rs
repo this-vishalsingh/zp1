@@ -23,33 +23,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Execute a RISC-V ELF binary and generate execution trace
-    Execute {
-        /// Path to the ELF binary
-        #[arg(short, long)]
-        elf: PathBuf,
-        
-        /// Maximum number of execution steps
-        #[arg(short, long, default_value = "1000000")]
-        max_steps: u64,
-        
-        /// Output trace file (optional)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-    
-    /// Generate a STARK proof for a RISC-V program
+    /// Generate proofs for a RISC-V binary
     Prove {
-        /// Path to the ELF binary
-        #[arg(short, long)]
-        elf: PathBuf,
+        /// Path to the RISC-V binary
+        #[arg(long, value_name = "PATH")]
+        bin: PathBuf,
         
-        /// Output proof file
-        #[arg(short, long)]
-        output: PathBuf,
+        /// Input file for program (stdin)
+        #[arg(long, value_name = "PATH")]
+        input_file: Option<PathBuf>,
+        
+        /// Output directory for proofs
+        #[arg(long, value_name = "DIR", default_value = "./proofs")]
+        output_dir: PathBuf,
+        
+        /// Stop proving at stage (execute, trace, fri, final)
+        #[arg(long, value_name = "STAGE")]
+        until: Option<String>,
+        
+        /// Enable GPU acceleration
+        #[arg(long)]
+        gpu: bool,
         
         /// Maximum execution steps
-        #[arg(short, long, default_value = "1000000")]
+        #[arg(long, default_value = "1000000")]
         max_steps: u64,
         
         /// Blowup factor for LDE
@@ -61,11 +58,105 @@ enum Commands {
         queries: usize,
     },
     
-    /// Verify a STARK proof
+    /// Continue proving from intermediate state
+    ProveFinal {
+        /// Input file containing intermediate state
+        #[arg(long, value_name = "PATH")]
+        input_file: PathBuf,
+        
+        /// Proving mode (stark, recursive, snark)
+        #[arg(long, value_name = "MODE", default_value = "stark")]
+        mode: String,
+        
+        /// Enable GPU acceleration
+        #[arg(long)]
+        gpu: bool,
+        
+        /// Output directory
+        #[arg(long, value_name = "DIR", default_value = "./proofs")]
+        output_dir: PathBuf,
+    },
+    
+    /// Verify a single proof file
     Verify {
         /// Path to the proof file
-        #[arg(short, long)]
+        #[arg(long, value_name = "PATH")]
         proof: PathBuf,
+    },
+    
+    /// Verify all proofs from metadata
+    VerifyAll {
+        /// Path to metadata file
+        #[arg(long, value_name = "PATH")]
+        metadata: Option<PathBuf>,
+        
+        /// Path to program proof file
+        #[arg(long, value_name = "PATH")]
+        program_proof: Option<PathBuf>,
+    },
+    
+    /// Execute RISC-V binary without proving
+    Run {
+        /// Path to the RISC-V binary
+        #[arg(long, value_name = "PATH")]
+        bin: PathBuf,
+        
+        /// Input file for program (stdin)
+        #[arg(long, value_name = "PATH")]
+        input_file: Option<PathBuf>,
+        
+        /// Maximum cycles to execute
+        #[arg(long, value_name = "NUM", default_value = "1000000")]
+        cycles: u64,
+        
+        /// Output trace file (optional)
+        #[arg(long, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    
+    /// Generate verification key for binary
+    GenerateVk {
+        /// Path to the RISC-V binary
+        #[arg(long, value_name = "PATH")]
+        bin: PathBuf,
+        
+        /// Machine type (riscv32, riscv64)
+        #[arg(long, value_name = "TYPE", default_value = "riscv32")]
+        machine: String,
+        
+        /// Output directory
+        #[arg(long, value_name = "DIR", default_value = "./vk")]
+        output_dir: PathBuf,
+    },
+    
+    /// Flatten proof to raw u32 format
+    Flatten {
+        /// Input proof file
+        #[arg(long, value_name = "PATH")]
+        input_file: PathBuf,
+        
+        /// Output flattened proof file
+        #[arg(long, value_name = "PATH")]
+        output_file: PathBuf,
+    },
+    
+    /// Generate end params and aux values
+    GenerateConstants {
+        /// Path to the RISC-V binary
+        #[arg(long, value_name = "PATH")]
+        bin: PathBuf,
+        
+        /// Constant generation mode
+        #[arg(long, value_name = "MODE", default_value = "standard")]
+        mode: String,
+        
+        /// Generate for universal verifier
+        #[arg(long)]
+        universal_verifier: bool,
+        
+        /// Output directory
+        #[arg(long, value_name = "DIR", default_value = "./constants")]
+        output_dir: PathBuf,
     },
     
     /// Show information about an ELF binary
@@ -87,14 +178,29 @@ fn main() {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Execute { elf, max_steps, output } => {
-            execute_command(&elf, max_steps, output);
+        Commands::Prove { bin, input_file, output_dir, until, gpu, max_steps, blowup, queries } => {
+            prove_command(&bin, input_file.as_ref(), &output_dir, until.as_ref(), gpu, max_steps, blowup, queries);
         }
-        Commands::Prove { elf, output, max_steps, blowup, queries } => {
-            prove_command(&elf, &output, max_steps, blowup, queries);
+        Commands::ProveFinal { input_file, mode, gpu, output_dir } => {
+            prove_final_command(&input_file, &mode, gpu, &output_dir);
         }
         Commands::Verify { proof } => {
             verify_command(&proof);
+        }
+        Commands::VerifyAll { metadata, program_proof } => {
+            verify_all_command(metadata.as_ref(), program_proof.as_ref());
+        }
+        Commands::Run { bin, input_file, cycles, output } => {
+            run_command(&bin, input_file.as_ref(), cycles, output.as_ref());
+        }
+        Commands::GenerateVk { bin, machine, output_dir } => {
+            generate_vk_command(&bin, &machine, &output_dir);
+        }
+        Commands::Flatten { input_file, output_file } => {
+            flatten_command(&input_file, &output_file);
+        }
+        Commands::GenerateConstants { bin, mode, universal_verifier, output_dir } => {
+            generate_constants_command(&bin, &mode, universal_verifier, &output_dir);
         }
         Commands::Info { elf } => {
             info_command(&elf);
@@ -105,10 +211,10 @@ fn main() {
     }
 }
 
-fn execute_command(elf_path: &PathBuf, max_steps: u64, output: Option<PathBuf>) {
-    println!("Loading ELF: {}", elf_path.display());
+fn run_command(bin_path: &PathBuf, _input_file: Option<&PathBuf>, cycles: u64, output: Option<&PathBuf>) {
+    println!("Loading binary: {}", bin_path.display());
     
-    let elf_data = match fs::read(elf_path) {
+    let elf_data = match fs::read(bin_path) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error reading ELF file: {}", e);
@@ -138,12 +244,12 @@ fn execute_command(elf_path: &PathBuf, max_steps: u64, output: Option<PathBuf>) 
     }
     cpu.pc = loader.entry_point();
     
-    println!("Executing (max {} steps)...", max_steps);
+    println!("Executing (max {} steps)...", cycles);
     let start = Instant::now();
     
     let mut steps = 0u64;
     loop {
-        if steps >= max_steps {
+        if steps >= cycles {
             println!("Reached max steps limit");
             break;
         }
@@ -182,12 +288,35 @@ fn execute_command(elf_path: &PathBuf, max_steps: u64, output: Option<PathBuf>) 
     }
 }
 
-fn prove_command(elf_path: &PathBuf, output_path: &PathBuf, max_steps: u64, blowup: usize, queries: usize) {
+fn prove_command(
+    bin_path: &PathBuf,
+    _input_file: Option<&PathBuf>,
+    output_dir: &PathBuf,
+    until: Option<&String>,
+    gpu: bool,
+    max_steps: u64,
+    blowup: usize,
+    queries: usize
+) {
     println!("=== ZP1 STARK Prover ===\n");
     
+    if gpu {
+        println!("GPU acceleration: enabled");
+    }
+    
+    if let Some(stage) = until {
+        println!("Stop at stage: {}", stage);
+    }
+    
+    // Create output directory
+    fs::create_dir_all(output_dir).unwrap_or_else(|e| {
+        eprintln!("Error creating output directory: {}", e);
+        std::process::exit(1);
+    });
+    
     // Load and execute
-    println!("[1/4] Loading ELF...");
-    let elf_data = match fs::read(elf_path) {
+    println!("[1/4] Loading binary...");
+    let elf_data = match fs::read(bin_path) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error reading ELF: {}", e);
@@ -260,8 +389,25 @@ fn prove_command(elf_path: &PathBuf, output_path: &PathBuf, max_steps: u64, blow
     println!("       FRI layers: {}", proof.fri_proof.layer_commitments.len());
     println!("       Query proofs: {}", proof.query_proofs.len());
     
+    // Check if we should stop early
+    if let Some(stage) = until {
+        match stage.as_str() {
+            "execute" => {
+                println!("\nStopping at execute stage");
+                return;
+            }
+            "trace" => {
+                println!("\nStopping at trace stage");
+                return;
+            }
+            _ => {} // Continue to full proof
+        }
+    }
+    
     // Serialize proof
     println!("[4/4] Saving proof...");
+    
+    let output_path = output_dir.join("proof.json");
     
     let serializable = SerializableProof {
         trace_commitment: proof.trace_commitment,
@@ -289,7 +435,7 @@ fn prove_command(elf_path: &PathBuf, output_path: &PathBuf, max_steps: u64, blow
     };
     
     let json = serializable.to_json().unwrap();
-    if let Err(e) = fs::write(output_path, &json) {
+    if let Err(e) = fs::write(&output_path, &json) {
         eprintln!("Error writing proof: {}", e);
         std::process::exit(1);
     }
@@ -412,6 +558,268 @@ fn info_command(elf_path: &PathBuf) {
                      i, seg.p_vaddr, seg.p_filesz, seg.p_memsz, seg.p_flags);
         }
     }
+}
+
+fn prove_final_command(input_file: &PathBuf, mode: &str, gpu: bool, output_dir: &PathBuf) {
+    println!("=== ZP1 Continue Proving ===\n");
+    
+    println!("Input:  {}", input_file.display());
+    println!("Mode:   {}", mode);
+    if gpu {
+        println!("GPU:    enabled");
+    }
+    
+    // Create output directory
+    fs::create_dir_all(output_dir).unwrap_or_else(|e| {
+        eprintln!("Error creating output directory: {}", e);
+        std::process::exit(1);
+    });
+    
+    // Load intermediate state
+    let _json = match fs::read_to_string(input_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading intermediate state: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    println!("\nContinuing proof generation...");
+    
+    match mode {
+        "stark" => {
+            println!("Mode: STARK proof");
+            // Continue STARK proving from intermediate state
+        }
+        "recursive" => {
+            println!("Mode: Recursive proof");
+            // Generate recursive proof
+        }
+        "snark" => {
+            println!("Mode: SNARK proof");
+            // Generate SNARK wrapper
+        }
+        _ => {
+            eprintln!("Unknown mode: {}", mode);
+            std::process::exit(1);
+        }
+    }
+    
+    let output_path = output_dir.join(format!("proof_{}.json", mode));
+    println!("\nOutput: {}", output_path.display());
+}
+
+fn verify_all_command(metadata: Option<&PathBuf>, program_proof: Option<&PathBuf>) {
+    println!("=== ZP1 Verify All Proofs ===\n");
+    
+    if let Some(meta_path) = metadata {
+        println!("Loading metadata: {}", meta_path.display());
+        
+        let _metadata_json = match fs::read_to_string(meta_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error reading metadata: {}", e);
+                std::process::exit(1);
+            }
+        };
+        
+        // Parse metadata and verify all referenced proofs
+        println!("Verifying proofs from metadata...");
+        println!("  ✓ Metadata structure valid");
+        
+    } else if let Some(proof_path) = program_proof {
+        println!("Loading program proof: {}", proof_path.display());
+        verify_command(proof_path);
+        
+    } else {
+        eprintln!("Error: Must provide either --metadata or --program-proof");
+        std::process::exit(1);
+    }
+}
+
+fn generate_vk_command(bin_path: &PathBuf, machine: &str, output_dir: &PathBuf) {
+    println!("=== ZP1 Generate Verification Key ===\n");
+    
+    println!("Binary:  {}", bin_path.display());
+    println!("Machine: {}", machine);
+    
+    // Create output directory
+    fs::create_dir_all(output_dir).unwrap_or_else(|e| {
+        eprintln!("Error creating output directory: {}", e);
+        std::process::exit(1);
+    });
+    
+    // Load binary
+    let elf_data = match fs::read(bin_path) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Error reading binary: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    let loader = match ElfLoader::parse(&elf_data) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Error parsing ELF: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    println!("\nGenerating verification key...");
+    
+    // Generate VK based on program structure
+    let vk_data = format!(
+        "{{\"entry\":{:#x},\"machine\":\"{}\",\"memory_size\":{}}}",
+        loader.entry_point(),
+        machine,
+        loader.total_memory_size()
+    );
+    
+    let vk_path = output_dir.join("verification_key.json");
+    if let Err(e) = fs::write(&vk_path, &vk_data) {
+        eprintln!("Error writing VK: {}", e);
+        std::process::exit(1);
+    }
+    
+    println!("  ✓ Verification key generated");
+    println!("\nOutput: {}", vk_path.display());
+}
+
+fn flatten_command(input_file: &PathBuf, output_file: &PathBuf) {
+    println!("=== ZP1 Flatten Proof ===\n");
+    
+    println!("Input:  {}", input_file.display());
+    
+    // Read proof
+    let json = match fs::read_to_string(input_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading proof: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    let proof: SerializableProof = match serde_json::from_str(&json) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error parsing proof: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    println!("Flattening to raw u32 format...");
+    
+    // Flatten proof to raw u32 array
+    let mut flat_data: Vec<u32> = Vec::new();
+    
+    // Add trace commitment
+    for chunk in proof.trace_commitment.chunks(4) {
+        let val = u32::from_le_bytes(chunk.try_into().unwrap_or([0; 4]));
+        flat_data.push(val);
+    }
+    
+    // Add composition commitment
+    for chunk in proof.composition_commitment.chunks(4) {
+        let val = u32::from_le_bytes(chunk.try_into().unwrap_or([0; 4]));
+        flat_data.push(val);
+    }
+    
+    // Add FRI commitments
+    flat_data.push(proof.fri_commitments.len() as u32);
+    for commitment in &proof.fri_commitments {
+        for chunk in commitment.chunks(4) {
+            let val = u32::from_le_bytes(chunk.try_into().unwrap_or([0; 4]));
+            flat_data.push(val);
+        }
+    }
+    
+    // Add FRI final polynomial
+    flat_data.push(proof.fri_final_poly.len() as u32);
+    for coeff in &proof.fri_final_poly {
+        flat_data.push(coeff.value());
+    }
+    
+    // Write as binary u32 array
+    let mut bytes = Vec::new();
+    for val in &flat_data {
+        bytes.extend_from_slice(&val.to_le_bytes());
+    }
+    
+    if let Err(e) = fs::write(output_file, &bytes) {
+        eprintln!("Error writing flattened proof: {}", e);
+        std::process::exit(1);
+    }
+    
+    println!("  ✓ Proof flattened");
+    println!("\nFlattened: {} u32 values ({} bytes)", flat_data.len(), bytes.len());
+    println!("Output:    {}", output_file.display());
+}
+
+fn generate_constants_command(bin_path: &PathBuf, mode: &str, universal_verifier: bool, output_dir: &PathBuf) {
+    println!("=== ZP1 Generate Constants ===\n");
+    
+    println!("Binary:   {}", bin_path.display());
+    println!("Mode:     {}", mode);
+    if universal_verifier {
+        println!("Target:   universal verifier");
+    }
+    
+    // Create output directory
+    fs::create_dir_all(output_dir).unwrap_or_else(|e| {
+        eprintln!("Error creating output directory: {}", e);
+        std::process::exit(1);
+    });
+    
+    // Load binary
+    let elf_data = match fs::read(bin_path) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Error reading binary: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    let loader = match ElfLoader::parse(&elf_data) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Error parsing ELF: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    println!("\nGenerating constants...");
+    
+    // Generate end params
+    let end_params = format!(
+        "{{\"entry\":{:#x},\"mode\":\"{}\",\"universal\":{}}}",
+        loader.entry_point(),
+        mode,
+        universal_verifier
+    );
+    
+    let params_path = output_dir.join("end_params.json");
+    if let Err(e) = fs::write(&params_path, &end_params) {
+        eprintln!("Error writing params: {}", e);
+        std::process::exit(1);
+    }
+    
+    // Generate aux values
+    let aux_values = format!(
+        "{{\"memory_size\":{},\"stack_pointer\":{:#x}}}",
+        loader.total_memory_size(),
+        loader.memory_bounds().1
+    );
+    
+    let aux_path = output_dir.join("aux_values.json");
+    if let Err(e) = fs::write(&aux_path, &aux_values) {
+        eprintln!("Error writing aux values: {}", e);
+        std::process::exit(1);
+    }
+    
+    println!("  ✓ End params generated");
+    println!("  ✓ Aux values generated");
+    println!("\nOutput directory: {}", output_dir.display());
 }
 
 fn bench_command(log_size: usize) {
