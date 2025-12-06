@@ -475,6 +475,33 @@ impl ConstraintEvaluator {
         )
     }
     
+    /// Load/Store value constraints.
+    /// NOTE: These are simplified constraints. Full implementation requires:
+    /// 1. Additional trace columns for memory values (mem_val_lo, mem_val_hi)
+    /// 2. Specific selectors for each load/store type (is_lw, is_lb, is_lbu, etc.)
+    /// 3. Sign extension witnesses for LB/LH
+    /// 4. Byte/halfword extraction witnesses for SB/SH
+    /// 
+    /// For now, these are placeholders that will be expanded when trace structure is updated.
+    
+    /// Load value consistency placeholder.
+    /// TODO: Add specific constraints for LW, LB, LBU, LH, LHU with proper trace columns.
+    #[inline]
+    pub fn load_value_constraint(_row: &CpuTraceRow) -> M31 {
+        // Placeholder: requires mem_val_lo/mem_val_hi trace columns
+        // and specific load type selectors to be added to CpuTraceRow
+        M31::ZERO
+    }
+    
+    /// Store value consistency placeholder.
+    /// TODO: Add specific constraints for SW, SB, SH with proper trace columns.
+    #[inline]
+    pub fn store_value_constraint(_row: &CpuTraceRow) -> M31 {
+        // Placeholder: requires mem_val_lo/mem_val_hi trace columns
+        // and specific store type selectors to be added to CpuTraceRow
+        M31::ZERO
+    }
+    
     /// MUL: rd = (rs1 * rs2)[31:0].
     /// Uses witness columns for the full product.
     #[inline]

@@ -9,11 +9,11 @@ pub struct VerifierChannel {
 }
 
 impl VerifierChannel {
-    /// Create a new verifier channel.
-    pub fn new() -> Self {
-        Self {
-            hasher: Sha256::new(),
-        }
+    /// Create a new verifier channel with domain separator.
+    pub fn new(domain_separator: &[u8]) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(domain_separator);
+        Self { hasher }
     }
 
     /// Absorb bytes into the transcript.
@@ -73,6 +73,6 @@ impl VerifierChannel {
 
 impl Default for VerifierChannel {
     fn default() -> Self {
-        Self::new()
+        Self::new(b"zp1-stark-v1")
     }
 }

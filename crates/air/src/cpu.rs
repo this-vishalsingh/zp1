@@ -9,16 +9,20 @@ pub struct CpuAir;
 
 impl CpuAir {
     /// Evaluate the x0 = 0 constraint.
-    /// If rd = 0, then rd_val must be 0.
+    /// When writing to x0 (is_write_x0 selector = 1), rd_val must be 0.
+    /// 
+    /// # Arguments
+    /// * `is_write_x0` - Boolean selector (1 if writing to x0, 0 otherwise)
+    /// * `rd_val_lo` - Lower 16-bit limb of value being written
+    /// * `rd_val_hi` - Upper 16-bit limb of value being written
+    /// 
+    /// # Returns
+    /// Sum of two constraints (one per limb): is_write_x0 * rd_val_lo + is_write_x0 * rd_val_hi
     #[inline]
-    pub fn x0_zero_constraint(_rd: M31, _rd_val: M31) -> M31 {
-        // rd * rd_val = 0 when rd = 0
-        // But we need: if rd = 0 then rd_val = 0
-        // Constraint: rd_val * (1 - rd * something) ... 
-        // Simpler: use selector. If is_rd_zero = 1 when rd=0, then is_rd_zero * rd_val = 0
-        // For now, assume rd=0 case is handled by not writing.
-        // Placeholder constraint:
-        M31::ZERO
+    pub fn x0_zero_constraint(is_write_x0: M31, rd_val_lo: M31, rd_val_hi: M31) -> M31 {
+        // When is_write_x0 = 1, both limbs must be 0
+        // Constraints combined: is_write_x0 * (rd_val_lo + rd_val_hi) = 0
+        is_write_x0 * (rd_val_lo + rd_val_hi)
     }
 
     /// Evaluate PC increment constraint for non-branch/jump.

@@ -252,7 +252,7 @@ impl Verifier {
 
     /// Verify a STARK proof.
     pub fn verify(&self, proof: &StarkProof) -> VerifyResult<()> {
-        let mut channel = VerifierChannel::new();
+        let mut channel = VerifierChannel::new(b"zp1-stark-v1");
 
         // Sanity check OOD values exist
         let trace_width = proof.ood_values.trace_at_z.len();
@@ -274,16 +274,13 @@ impl Verifier {
         // Step 4: Get DEEP/OODS sampling point
         let oods_point = channel.squeeze_extension_challenge();
 
-        // Step 5: Absorb OOD values into transcript (matches prover flow)
-        for v in &proof.ood_values.trace_at_z {
-            channel.absorb_felt(*v);
-        }
-        for v in &proof.ood_values.trace_at_z_next {
-            channel.absorb_felt(*v);
-        }
-        channel.absorb_felt(proof.ood_values.composition_at_z);
-
-        // Step 6: Process FRI layer commitments and get folding challenges
+    // Step 5: Absorb OOD values into transcript (must match prover exactly)
+    // CRITICAL: Prover only absorbs trace_at_z and composition_at_z, not trace_at_z_next
+    for v in &proof.ood_values.trace_at_z {
+        channel.absorb_felt(*v);
+    }
+    // Note: trace_at_z_next is NOT absorbed to match prover transcript
+    channel.absorb_felt(proof.ood_values.composition_at_z);        // Step 6: Process FRI layer commitments and get folding challenges
         let mut fri_alphas = Vec::new();
         for commitment in &proof.fri_proof.layer_commitments {
             channel.absorb_commitment(commitment);
