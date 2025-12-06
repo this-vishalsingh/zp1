@@ -146,7 +146,7 @@ cargo test -p zp1-tests         # Integration tests (16 passing)
 
 ## Development Status
 
-**Phase 1 Complete** (20 hours):
+**Phase 1 Complete**:
 - ✅ Fixed all critical soundness vulnerabilities (5/5 CVEs)
 - ✅ Fiat-Shamir transcript alignment
 - ✅ Domain separator + public input binding
@@ -154,7 +154,7 @@ cargo test -p zp1-tests         # Integration tests (16 passing)
 - ✅ RAM permutation (LogUp)
 - ✅ DEEP quotient verification
 
-**Phase 2 Complete** (20 hours):
+**Phase 2 Complete**:
 - ✅ All 47 RV32IM constraint functions implemented
 - ✅ Bitwise operations (AND/OR/XOR)
 - ✅ Shift operations (SLL/SRL/SRA)
@@ -165,13 +165,13 @@ cargo test -p zp1-tests         # Integration tests (16 passing)
 - ✅ M-extension multiply/divide (MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU)
 - ✅ Load/Store with value consistency and witnesses
 
-**Phase 3 Complete** (5 hours):
+**Phase 3 Complete**:
 - ✅ Full AIR integration with trace generation
 - ✅ All constraints wired into evaluate_all()
 - ✅ End-to-end prove/verify tested with real programs
 - ✅ 407 tests passing with zero failures
 
-**Remaining Work for 100%** (1-2 weeks):
+**Remaining Work for 100%**:
 - ⏳ Full range constraints for multiply/divide witnesses
 - ⏳ Complete bit decomposition for bitwise/shift operations
 - ⏳ GPU optimization (CUDA backend, Metal kernel tuning)
