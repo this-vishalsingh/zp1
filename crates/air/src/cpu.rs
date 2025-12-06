@@ -79,6 +79,119 @@ impl CpuAir {
         (c1, c2)
     }
 
+    /// Evaluate ADDI (Add Immediate) constraint.
+    /// rd_val = rs1_val + imm (mod 2^32)
+    /// Reuses ADD logic with immediate instead of rs2.
+    #[inline]
+    pub fn addi_constraint(
+        is_addi: M31,
+        rd_val_lo: M31,
+        rd_val_hi: M31,
+        rs1_val_lo: M31,
+        rs1_val_hi: M31,
+        imm_lo: M31,
+        imm_hi: M31,
+        carry: M31,
+    ) -> (M31, M31) {
+        // Same as ADD but with immediate
+        Self::add_constraint(
+            is_addi, rd_val_lo, rd_val_hi,
+            rs1_val_lo, rs1_val_hi,
+            imm_lo, imm_hi, carry
+        )
+    }
+
+    /// Evaluate ANDI (AND Immediate) constraint.
+    /// rd_val = rs1_val & imm
+    /// Uses bitwise AND logic with immediate.
+    pub fn andi_constraint(
+        bits_rs1: &[M31; 32],
+        bits_imm: &[M31; 32],
+        bits_result: &[M31; 32],
+    ) -> Vec<M31> {
+        // Same as bitwise AND
+        Self::bitwise_and_constraints(bits_rs1, bits_imm, bits_result)
+    }
+
+    /// Evaluate ORI (OR Immediate) constraint.
+    /// rd_val = rs1_val | imm
+    pub fn ori_constraint(
+        bits_rs1: &[M31; 32],
+        bits_imm: &[M31; 32],
+        bits_result: &[M31; 32],
+    ) -> Vec<M31> {
+        // Same as bitwise OR
+        Self::bitwise_or_constraints(bits_rs1, bits_imm, bits_result)
+    }
+
+    /// Evaluate XORI (XOR Immediate) constraint.
+    /// rd_val = rs1_val ^ imm
+    pub fn xori_constraint(
+        bits_rs1: &[M31; 32],
+        bits_imm: &[M31; 32],
+        bits_result: &[M31; 32],
+    ) -> Vec<M31> {
+        // Same as bitwise XOR
+        Self::bitwise_xor_constraints(bits_rs1, bits_imm, bits_result)
+    }
+
+    /// Evaluate SLTI (Set Less Than Immediate) constraint.
+    /// rd_val = (rs1 < imm) ? 1 : 0 (signed comparison)
+    pub fn slti_constraint(
+        bits_rs1: &[M31; 32],
+        bits_imm: &[M31; 32],
+        result: M31,
+        diff_bits: &[M31; 32],
+    ) -> Vec<M31> {
+        // Same as SLT but with immediate
+        Self::set_less_than_signed_constraints(bits_rs1, bits_imm, result, diff_bits)
+    }
+
+    /// Evaluate SLTIU (Set Less Than Immediate Unsigned) constraint.
+    /// rd_val = (rs1 < imm) ? 1 : 0 (unsigned comparison)
+    pub fn sltiu_constraint(
+        bits_rs1: &[M31; 32],
+        bits_imm: &[M31; 32],
+        result: M31,
+        borrow: M31,
+    ) -> Vec<M31> {
+        // Same as SLTU but with immediate
+        Self::set_less_than_unsigned_constraints(bits_rs1, bits_imm, result, borrow)
+    }
+
+    /// Evaluate SLLI (Shift Left Logical Immediate) constraint.
+    /// rd_val = rs1_val << shamt
+    pub fn slli_constraint(
+        bits_rs1: &[M31; 32],
+        bits_result: &[M31; 32],
+        shamt: M31,
+    ) -> Vec<M31> {
+        // Same as SLL but with immediate shift amount
+        Self::shift_left_logical_constraints(bits_rs1, bits_result, shamt)
+    }
+
+    /// Evaluate SRLI (Shift Right Logical Immediate) constraint.
+    /// rd_val = rs1_val >> shamt
+    pub fn srli_constraint(
+        bits_rs1: &[M31; 32],
+        bits_result: &[M31; 32],
+        shamt: M31,
+    ) -> Vec<M31> {
+        // Same as SRL but with immediate shift amount
+        Self::shift_right_logical_constraints(bits_rs1, bits_result, shamt)
+    }
+
+    /// Evaluate SRAI (Shift Right Arithmetic Immediate) constraint.
+    /// rd_val = rs1_val >> shamt (sign-extended)
+    pub fn srai_constraint(
+        bits_rs1: &[M31; 32],
+        bits_result: &[M31; 32],
+        shamt: M31,
+    ) -> Vec<M31> {
+        // Same as SRA but with immediate shift amount
+        Self::shift_right_arithmetic_constraints(bits_rs1, bits_result, shamt)
+    }
+
     /// Evaluate bit decomposition constraint.
     /// Ensures that:
     /// 1. Each bit is binary (bit * (bit - 1) = 0)
@@ -1026,5 +1139,236 @@ mod tests {
 
         let has_nonzero = constraints.iter().any(|c| *c != M31::ZERO);
         assert!(has_nonzero, "Constraint should catch incorrect comparison result");
+    }
+
+    #[test]
+    fn test_addi_constraint() {
+        // Test ADDI: rs1 + imm
+        let rs1 = 100u32;
+        let imm = 50u32;
+        let expected = rs1.wrapping_add(imm);
+
+        let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+        let (imm_lo, imm_hi) = u32_to_limbs(imm);
+        let (result_lo, result_hi) = u32_to_limbs(expected);
+        
+        // No carry for this case
+        let carry = M31::ZERO;
+        let is_addi = M31::ONE;
+
+        let (c_lo, c_hi) = CpuAir::addi_constraint(
+            is_addi, result_lo, result_hi,
+            rs1_lo, rs1_hi, imm_lo, imm_hi, carry
+        );
+
+        assert_eq!(c_lo, M31::ZERO, "ADDI low limb failed");
+        assert_eq!(c_hi, M31::ZERO, "ADDI high limb failed");
+    }
+
+    #[test]
+    fn test_andi_constraint() {
+        // Test ANDI: rs1 & imm
+        let rs1 = 0xF0F0F0F0u32;
+        let imm = 0x0F0F0F0Fu32;
+        let expected = rs1 & imm;
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_imm = u32_to_bits(imm);
+        let bits_result = u32_to_bits(expected);
+
+        let constraints = CpuAir::andi_constraint(&bits_rs1, &bits_imm, &bits_result);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "ANDI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_ori_constraint() {
+        // Test ORI: rs1 | imm
+        let rs1 = 0x12345678u32;
+        let imm = 0x00000FFFu32;
+        let expected = rs1 | imm;
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_imm = u32_to_bits(imm);
+        let bits_result = u32_to_bits(expected);
+
+        let constraints = CpuAir::ori_constraint(&bits_rs1, &bits_imm, &bits_result);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "ORI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_xori_constraint() {
+        // Test XORI: rs1 ^ imm
+        let rs1 = 0xAAAAAAAAu32;
+        let imm = 0x55555555u32;
+        let expected = rs1 ^ imm;
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_imm = u32_to_bits(imm);
+        let bits_result = u32_to_bits(expected);
+
+        let constraints = CpuAir::xori_constraint(&bits_rs1, &bits_imm, &bits_result);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "XORI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_slti_constraint() {
+        // Test SLTI: signed comparison with immediate
+        let rs1 = 0xFFFFFFFEu32; // -2
+        let imm = 5u32;
+        let diff = rs1.wrapping_sub(imm);
+        
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_imm = u32_to_bits(imm);
+        let diff_bits = u32_to_bits(diff);
+        let result = M31::ONE; // -2 < 5 = true
+
+        let constraints = CpuAir::slti_constraint(&bits_rs1, &bits_imm, result, &diff_bits);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "SLTI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_sltiu_constraint() {
+        // Test SLTIU: unsigned comparison with immediate
+        let rs1 = 5u32;
+        let imm = 10u32;
+        
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_imm = u32_to_bits(imm);
+        let result = M31::ONE; // 5 < 10 = true (unsigned)
+        let borrow = M31::ONE;
+
+        let constraints = CpuAir::sltiu_constraint(&bits_rs1, &bits_imm, result, borrow);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "SLTIU constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_slli_constraint() {
+        // Test SLLI: shift left with immediate
+        let rs1 = 0x00000001u32;
+        let shamt = 4u32;
+        let expected = rs1 << shamt;
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_result = u32_to_bits(expected);
+        let shamt_m31 = M31::new(shamt);
+
+        let constraints = CpuAir::slli_constraint(&bits_rs1, &bits_result, shamt_m31);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "SLLI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_srli_constraint() {
+        // Test SRLI: shift right logical with immediate
+        let rs1 = 0x80000000u32;
+        let shamt = 4u32;
+        let expected = rs1 >> shamt;
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_result = u32_to_bits(expected);
+        let shamt_m31 = M31::new(shamt);
+
+        let constraints = CpuAir::srli_constraint(&bits_rs1, &bits_result, shamt_m31);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "SRLI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_srai_constraint() {
+        // Test SRAI: shift right arithmetic with immediate
+        let rs1 = 0x80000000u32; // Negative number
+        let shamt = 4u32;
+        let expected = 0xF8000000u32; // Sign-extended
+
+        let bits_rs1 = u32_to_bits(rs1);
+        let bits_result = u32_to_bits(expected);
+        let shamt_m31 = M31::new(shamt);
+
+        let constraints = CpuAir::srai_constraint(&bits_rs1, &bits_result, shamt_m31);
+
+        for constraint in constraints {
+            assert_eq!(constraint, M31::ZERO, "SRAI constraint failed");
+        }
+    }
+
+    #[test]
+    fn test_itype_comprehensive() {
+        // Test multiple I-type instructions together
+        let test_cases = [
+            // (rs1, imm, operation, expected)
+            (100u32, 50u32, "addi", 150u32),
+            (0xFF00u32, 0x00FFu32, "andi", 0x0000u32),
+            (0xF000u32, 0x0F00u32, "ori", 0xFF00u32),
+            (0xFFFFu32, 0xAAAAu32, "xori", 0x5555u32),
+        ];
+
+        for (rs1, imm, op, expected) in test_cases {
+            match op {
+                "addi" => {
+                    let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
+                    let (imm_lo, imm_hi) = u32_to_limbs(imm);
+                    let (result_lo, result_hi) = u32_to_limbs(expected);
+                    let carry = M31::ZERO;
+                    
+                    let (c_lo, c_hi) = CpuAir::addi_constraint(
+                        M31::ONE, result_lo, result_hi,
+                        rs1_lo, rs1_hi, imm_lo, imm_hi, carry
+                    );
+                    
+                    assert_eq!(c_lo, M31::ZERO, "ADDI({} + {}) failed", rs1, imm);
+                    assert_eq!(c_hi, M31::ZERO, "ADDI({} + {}) failed", rs1, imm);
+                }
+                "andi" => {
+                    let bits_rs1 = u32_to_bits(rs1);
+                    let bits_imm = u32_to_bits(imm);
+                    let bits_result = u32_to_bits(expected);
+                    
+                    let constraints = CpuAir::andi_constraint(&bits_rs1, &bits_imm, &bits_result);
+                    for c in constraints {
+                        assert_eq!(c, M31::ZERO, "ANDI({:#x} & {:#x}) failed", rs1, imm);
+                    }
+                }
+                "ori" => {
+                    let bits_rs1 = u32_to_bits(rs1);
+                    let bits_imm = u32_to_bits(imm);
+                    let bits_result = u32_to_bits(expected);
+                    
+                    let constraints = CpuAir::ori_constraint(&bits_rs1, &bits_imm, &bits_result);
+                    for c in constraints {
+                        assert_eq!(c, M31::ZERO, "ORI({:#x} | {:#x}) failed", rs1, imm);
+                    }
+                }
+                "xori" => {
+                    let bits_rs1 = u32_to_bits(rs1);
+                    let bits_imm = u32_to_bits(imm);
+                    let bits_result = u32_to_bits(expected);
+                    
+                    let constraints = CpuAir::xori_constraint(&bits_rs1, &bits_imm, &bits_result);
+                    for c in constraints {
+                        assert_eq!(c, M31::ZERO, "XORI({:#x} ^ {:#x}) failed", rs1, imm);
+                    }
+                }
+                _ => panic!("Unknown operation: {}", op),
+            }
+        }
     }
 }
