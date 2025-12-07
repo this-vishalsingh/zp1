@@ -11,6 +11,7 @@ tiny-keccak = { version = "2.0", features = ["keccak"] }
 secp256k1 = { version = "0.29", features = ["recovery", "global-context"] }
 sha2 = "0.10"
 ripemd = "0.1"
+blake2 = "0.10"
 
 [dev-dependencies]
 rand = { workspace = true }

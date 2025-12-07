@@ -23,6 +23,8 @@
 - **ECRECOVER** (syscall 0x1001): Ethereum signature recovery with EIP-155
 - **SHA-256** (syscall 0x1002): ~80 trace rows vs 8M+ in pure RISC-V
 - **RIPEMD-160** (syscall 0x1003): ~80 trace rows vs 6M+ in pure RISC-V
+- **MODEXP** (syscall 0x1004): RSA and modular exponentiation for U256
+- **Blake2b** (syscall 0x1005): ~120 trace rows vs 12M+ in pure RISC-V
 - All provide ~50,000-100,000x speedup over native execution
 - Full delegation trace generation for proving
 - Integration with BigInt library for field element encoding
@@ -50,15 +52,15 @@
 | Component | Status | Tests |
 |-----------|--------|-------|
 | **Primitives** | 100% | 48/48 ✅ |
-| **Executor** | 100% | 51/51 ✅ |
-| **Delegation** | 100% | 65/65 ✅ |
+| **Executor** | 100% | 56/56 ✅ |
+| **Delegation** | 100% | 75/75 ✅ |
 | **Trace** | 100% | - |
 | **AIR** | 100% | 83/83 ✅ |
 | **Prover** | 95% | 174/174 ✅ |
 | **Verifier** | 95% | 6/6 ✅ |
 | **Tests** | 100% | 16/16 ✅ |
 | **CLI** | 100% | 36/36 ✅ |
-| **Total** | **95%** | **487/487 ✅** |
+| **Total** | **95%** | **501/501 ✅** |
 
 ---
 

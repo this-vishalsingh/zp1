@@ -33,6 +33,8 @@ pub enum MemOp {
     Ripemd160 { message_ptr: usize, message_len: usize, digest_ptr: usize },
     /// Modular exponentiation (delegated to specialized circuit for RSA/crypto).
     Modexp { base_ptr: usize, exp_ptr: usize, mod_ptr: usize, result_ptr: usize },
+    /// Blake2b hash operation (delegated to specialized circuit).
+    Blake2b { message_ptr: usize, message_len: usize, digest_ptr: usize },
 }
 
 /// Flags indicating instruction class for AIR constraint selection.
