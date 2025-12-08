@@ -15,33 +15,7 @@ The system leverages **Circle STARKs** over the **Mersenne-31 (M31)** field, whi
 
 The system follows a standard **Compiler -> VM -> Prover -> Verifier** pipeline.
 
-### Mind Map: Component Hierarchy
-
-```mermaid
-mindmap
-  root((zp1 zkVM))
-    Guest [Guest Framework]
-      SDK [Rust SDK / no_std]
-      Syscalls [Syscalls & I/O]
-      Panic [Panic Handling]
-    Host [Host Runtime]
-      ELF [ELF Loader]
-      Executor [trace generation]
-      Segmenter [Trace Splitting]
-    Core [Core Primitives]
-      Field [Mersenne-31 / QM31]
-      Circle [Circle Group / FFT]
-      Poly [Polynomials]
-    Prover [STARK Prover]
-      AIR [AIR Constraints]
-      LDE [Low Degree Extension]
-      Commit [Merkle Tree / FRI]
-      LogUp [Lookup Arguments]
-      GPU [Metal / CUDA Backend]
-    Verifier [Verifier]
-      STARK [STARK Verifier]
-      Recursion [Proof Compression]
-```
+![zkVM Architecture Mind Map](docs/zkvm_mindmap.png)
 
 ---
 
@@ -49,60 +23,7 @@ mindmap
 
 The data flow moves from a high-level Rust program to a verifiable cryptographic proof.
 
-```mermaid
-graph TD
-    %% Nodes
-    UserCode[("User Code (Rust/C++)")]
-    Compiler[("Riscy Compiler (LLVM/Rustc)")]
-    ELF[("RISC-V ELF Binary")]
-    
-    subgraph Host Runtime
-        Loader[("ELF Loader")]
-        Executor[("Executor")]
-        TraceGen[("Trace Generator")]
-        
-        Loader --> Executor
-        Executor --> TraceGen
-    end
-    
-    subgraph Core Prover
-        TraceCols[("Trace Columns")]
-        LDE[("LDE (Circle FFT)")]
-        Constraints[("AIR Constraints")]
-        Quotient[("DEEP Quotient")]
-        FRI[("FRI Protocol")]
-        
-        TraceGen --> TraceCols
-        TraceCols --> LDE
-        LDE --> Quotient
-        Constraints --> Quotient
-        Quotient --> FRI
-    end
-    
-    subgraph Constraint System
-        CPU[("CPU Constraints")]
-        Mem[("Memory Constraints")]
-        Bitwise[("Bitwise Lookups")]
-        
-        TraceCols -.-> CPU
-        TraceCols -.-> Mem
-        TraceCols -.-> Bitwise
-    end
-
-    Proof[("STARK Proof")]
-    Verifier[("Verifier")]
-
-    %% Edges
-    UserCode --> Compiler
-    Compiler --> ELF
-    ELF --> Loader
-    FRI --> Proof
-    Proof --> Verifier
-    
-    style UserCode fill:#e1f5fe,stroke:#01579b
-    style Proof fill:#dcedc8,stroke:#33691e
-    style Core Prover fill:#fff3e0,stroke:#e65100
-```
+![zkVM Data Flow](docs/zkvm_dataflow.png)
 
 ---
 
