@@ -147,12 +147,13 @@ Sets up the RISC-V entry point (`_start`) and panic handler for your guest progr
 - Entry point macro
 - no_std compatibility
 - Documentation
+- I/O functions (read, commit, hint) with syscall protocol
+- Raw byte I/O variants (read_slice, commit_slice, hint_slice, peek_input_size)
 
 ### 🚧 In Progress
 
-- I/O protocol implementation (read/commit currently placeholders)
-- Integration with host executor
-- Testing framework
+- Host-side I/O syscall handlers in executor
+- Integration testing with actual guest programs
 
 ### 📋 Planned
 

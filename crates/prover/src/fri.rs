@@ -194,7 +194,9 @@ impl FriProver {
     /// - f_folded[i] = (f[i] + f[i + n/2]) / 2 + alpha * (f[i] - f[i + n/2]) / (2 * y_i)
     ///
     /// This halves the domain size while maintaining the RS proximity property.
-    fn fold_circle(&self, evals: &[M31], alpha: M31, _layer: usize) -> Vec<M31> {
+    fn fold_circle(&self, evals: &[M31], alpha: M31, layer: usize) -> Vec<M31> {
+        use zp1_primitives::CirclePoint;
+        
         let n = evals.len();
         let half_n = n / 2;
         let mut folded = Vec::with_capacity(half_n);
@@ -202,6 +204,11 @@ impl FriProver {
         // Two inverse constant
         let two = M31::new(2);
         let inv_two = two.inv();
+
+        // Get the circle domain generator for current layer
+        // Domain size at this layer = 2^(log_domain_size - layer)
+        let layer_log_size = self.config.log_domain_size.saturating_sub(layer);
+        let generator = CirclePoint::generator(layer_log_size);
 
         for i in 0..half_n {
             let f_pos = evals[i];
@@ -211,10 +218,22 @@ impl FriProver {
             let sum = f_pos + f_neg;
             let diff = f_pos - f_neg;
 
-            // f_folded = (sum / 2) + alpha * (diff / 2)
-            // Simplified folding (without explicit y-coordinate division)
-            // This is valid because we're working on evaluation domain
-            let folded_val = sum * inv_two + alpha * diff * inv_two;
+            // Get y-coordinate of domain point i
+            // point_i = generator^i
+            let point_i = generator.pow(i as u64);
+            let y_i = point_i.y;
+            
+            // Proper Circle FRI folding formula:
+            // f_folded = (sum / 2) + alpha * (diff / (2 * y_i))
+            // = (sum / 2) + alpha * diff * inv_two * y_i^(-1)
+            let folded_val = if y_i.is_zero() {
+                // Edge case: y = 0 means we're at (1,0) or (-1,0)
+                // Just use the sum part
+                sum * inv_two
+            } else {
+                let y_inv = y_i.inv();
+                sum * inv_two + alpha * diff * inv_two * y_inv
+            };
             
             folded.push(folded_val);
         }

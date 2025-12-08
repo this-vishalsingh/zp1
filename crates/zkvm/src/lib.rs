@@ -42,7 +42,12 @@ pub mod syscalls;
 pub mod prelude;
 
 // Re-export main items
-pub use io::{read, commit, hint};
+pub use io::{read, commit, hint, commit_slice, hint_slice};
+
+// Conditionally export riscv32-only functions
+#[cfg(target_arch = "riscv32")]
+pub use io::{read_slice, peek_input_size};
+
 pub use syscalls::*;
 
 /// Entry point macro for guest programs

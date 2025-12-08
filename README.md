@@ -20,11 +20,18 @@ Remaining 5%: range constraints optimization and GPU acceleration.
 
 ## Architecture
 
-- **Field**: Mersenne31 (p = 2^31 - 1) with QM31 extension
-- **Domain**: Circle group (order 2^32) for FFT operations  
-- **Commitment**: FRI with DEEP sampling
-- **Memory**: LogUp argument for consistency
-- **Instructions**: Full RV32IM (base + M-extension multiply/divide)
+```
+ELF Binary → Executor → Trace → Prover → Proof
+               ↓          ↓        ↓
+            RV32IM    77 cols   STARK/FRI
+```
+
+| Layer | Component |
+|-------|-----------|
+| Field | Mersenne31 (2³¹-1) with QM31 extension |
+| Domain | Circle group (order 2³²) |
+| Commitment | FRI + DEEP-ALI |
+| Memory | LogUp permutation argument |
 
 ## Crates
 
@@ -40,30 +47,6 @@ ethereum/     Ethereum block proving (framework ready)
 cli/          Command-line interface
 tests/        Integration tests
 ```
-
-## 🆕 Ethereum Block Proving
-
-Generate STARK proofs for Ethereum block execution! The framework is ready:
-
-```bash
-# Prove a single block
-./target/release/zp1 prove-block --rpc-url http://localhost:8545 --block-number 12345
-
-# Prove multiple blocks
-./target/release/zp1 prove-blocks --rpc-url YOUR_RPC --from 12345 --to 12350 --parallel
-```
-
-**Status:** Framework complete (40%), EVM integration in progress.  
-**Documentation:** See [`docs/ETHEREUM_QUICKSTART.md`](docs/ETHEREUM_QUICKSTART.md)
-
-**Key Features:**
-- ✅ Block fetching from any RPC endpoint
-- ✅ Transaction batching and parallel proving
-- ✅ Proof aggregation with Merkle trees
-- ✅ CLI commands ready to use
-- 🚧 EVM→RISC-V execution (next phase)
-- 🚧 Precompile delegation
-- 🚧 State proof verification
 
 ## Build
 
@@ -83,6 +66,20 @@ cargo build --release --features metal
 # Run tests
 cargo test --workspace
 ```
+
+## 🚀 Live Demo
+
+See the prover in action with real-time performance benchmarking:
+
+```bash
+cargo run --release --example demo_benchmark -p zp1-prover
+```
+
+This runs a soundness and performance test with:
+- 4096 execution steps (80 columns)
+- 16-bit range validation enabled
+- Sequential vs Parallel comparison
+- Full trace commitment and proof generation
 
 ## Implementation Details
 
