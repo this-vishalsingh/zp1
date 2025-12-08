@@ -708,12 +708,17 @@ impl CpuAir {
         addr_lo: M31,
         is_word_access: M31,
     ) -> M31 {
-        // addr_lo % 4 = addr_lo & 3
-        // Need bit decomposition to check low 2 bits are 0
+        // Check 4-byte alignment: addr % 4 == 0
+        // In M31 field: compute addr_lo mod 4
+        // We extract bottom 2 bits by: addr_lo - 4 * floor(addr_lo / 4)
         
-        // Simplified: Check addr_lo mod 4 via auxiliary witness
-        // For now, placeholder assuming alignment is pre-checked
-        is_word_access * (addr_lo - addr_lo) // Identity
+        let four = M31::new(4);
+        let quotient = M31::new(addr_lo.as_u32() / 4);  // Integer division
+        let remainder = addr_lo - quotient * four;       // addr_lo % 4
+        
+        // Constraint: when is_word_access = 1, remainder must be 0
+        // If remainder != 0, constraint is non-zero → proof fails
+        is_word_access * remainder
     }
 
     /// Evaluate alignment constraint for halfword access.
@@ -729,11 +734,17 @@ impl CpuAir {
         addr_lo: M31,
         is_half_access: M31,
     ) -> M31 {
-        // addr_lo % 2 = addr_lo & 1
-        // Check low bit is 0
+        // Check 2-byte alignment: addr % 2 == 0
+        // In M31 field: compute addr_lo mod 2
+        // We extract bottom bit by: addr_lo - 2 * floor(addr_lo / 2)
         
-        // Placeholder
-        is_half_access * (addr_lo - addr_lo)
+        let two = M31::new(2);
+        let quotient = M31::new(addr_lo.as_u32() / 2);  // Integer division
+        let remainder = addr_lo - quotient * two;       // addr_lo % 2
+        
+        // Constraint: when is_half_access = 1, remainder must be 0
+        // If remainder != 0 (i.e., odd address), constraint is non-zero → proof fails
+        is_half_access * remainder
     }
 
     // ============================================================================
@@ -2115,31 +2126,7 @@ mod tests {
         let _ = constraint;
     }
 
-    #[test]
-    fn test_word_alignment() {
-        // Test word alignment (placeholder)
-        let aligned_addr = M31::new(0x1000); // Aligned to 4
-        let is_word = M31::ONE;
-
-        let constraint = CpuAir::word_alignment_constraint(aligned_addr, is_word);
-        assert_eq!(constraint, M31::ZERO, "Word alignment constraint failed");
-
-        // Misaligned address (placeholder won't catch this yet)
-        let misaligned_addr = M31::new(0x1001);
-        let constraint2 = CpuAir::word_alignment_constraint(misaligned_addr, is_word);
-        // Placeholder returns 0 regardless
-        assert_eq!(constraint2, M31::ZERO, "Placeholder alignment");
-    }
-
-    #[test]
-    fn test_halfword_alignment() {
-        // Test halfword alignment (placeholder)
-        let aligned_addr = M31::new(0x1000); // Aligned to 2
-        let is_half = M31::ONE;
-
-        let constraint = CpuAir::halfword_alignment_constraint(aligned_addr, is_half);
-        assert_eq!(constraint, M31::ZERO, "Halfword alignment constraint failed");
-    }
+    // NOTE: Old placeholder tests removed - replaced with comprehensive alignment tests below
 
     // ============================================================================
     // M-Extension Tests
@@ -2689,5 +2676,155 @@ mod tests {
         
         // Should fail because eq_result doesn't match actual equality
         assert_ne!(constraint, M31::ZERO, "Should detect incorrect eq_result");
+    }
+
+    // ============================================================================
+    // Memory Alignment Tests
+    // ============================================================================
+
+    #[test]
+    fn test_word_alignment_valid_aligned() {
+        // Test word access at aligned address (divisible by 4)
+        let addr = 0x1000u32;  // Binary: ...0000 (last 2 bits = 00)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_word = M31::ONE;
+        
+        let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+        
+        assert_eq!(constraint, M31::ZERO, 
+            "Word access at aligned address 0x{:X} should pass", addr);
+    }
+
+    #[test]
+    fn test_word_alignment_invalid_offset_1() {
+        // Test word access at misaligned address (offset by 1 byte)
+        let addr = 0x1001u32;  // Binary: ...0001 (last 2 bits = 01)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_word = M31::ONE;
+        
+        let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+        
+        assert_ne!(constraint, M31::ZERO, 
+            "Word access at misaligned address 0x{:X} should FAIL", addr);
+    }
+
+    #[test]
+    fn test_word_alignment_invalid_offset_2() {
+        // Test word access at misaligned address (offset by 2 bytes)
+        let addr = 0x1002u32;  // Binary: ...0010 (last 2 bits = 10)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_word = M31::ONE;
+        
+        let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+        
+        assert_ne!(constraint, M31::ZERO, 
+            "Word access at misaligned address 0x{:X} should FAIL", addr);
+    }
+
+    #[test]
+    fn test_word_alignment_invalid_offset_3() {
+        // Test word access at misaligned address (offset by 3 bytes)
+        let addr = 0x1003u32;  // Binary: ...0011 (last 2 bits = 11)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_word = M31::ONE;
+        
+        let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+        
+        assert_ne!(constraint, M31::ZERO, 
+            "Word access at misaligned address 0x{:X} should FAIL", addr);
+    }
+
+    #[test]
+    fn test_word_alignment_multiple_aligned() {
+        // Test multiple aligned addresses
+        let aligned_addrs = [0x0000, 0x0004, 0x0008, 0x1000, 0x2004, 0xFFF0];
+        
+        for addr in aligned_addrs {
+            let addr_lo = M31::new(addr & 0xFFFF);
+            let is_word = M31::ONE;
+            
+            let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+            
+            assert_eq!(constraint, M31::ZERO, 
+                "Word access at aligned address 0x{:X} should pass", addr);
+        }
+    }
+
+    #[test]
+    fn test_word_alignment_disabled() {
+        // Test that constraint is disabled when is_word = 0
+        let addr = 0x1001u32;  // Misaligned
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_word = M31::ZERO;  // Not a word access
+        
+        let constraint = CpuAir::word_alignment_constraint(addr_lo, is_word);
+        
+        assert_eq!(constraint, M31::ZERO, 
+            "Constraint should be disabled when is_word = 0");
+    }
+
+    #[test]
+    fn test_halfword_alignment_valid_even() {
+        // Test halfword access at even address (divisible by 2)
+        let addr = 0x1000u32;  // Binary: ...0000 (last bit = 0)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_half = M31::ONE;
+        
+        let constraint = CpuAir::halfword_alignment_constraint(addr_lo, is_half);
+        
+        assert_eq!(constraint, M31::ZERO, 
+            "Halfword access at even address 0x{:X} should pass", addr);
+    }
+
+    #[test]
+    fn test_halfword_alignment_valid_even_2() {
+        // Test halfword access at another even address
+        let addr = 0x1002u32;  // Binary: ...0010 (last bit = 0)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_half = M31::ONE;
+        
+        let constraint = CpuAir::halfword_alignment_constraint(addr_lo, is_half);
+        
+        assert_eq!(constraint, M31::ZERO, 
+            "Halfword access at even address 0x{:X} should pass", addr);
+    }
+
+    #[test]
+    fn test_halfword_alignment_invalid_odd() {
+        // Test halfword access at odd address
+        let addr = 0x1001u32;  // Binary: ...0001 (last bit = 1)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_half = M31::ONE;
+        
+        let constraint = CpuAir::halfword_alignment_constraint(addr_lo, is_half);
+        
+        assert_ne!(constraint, M31::ZERO, 
+            "Halfword access at odd address 0x{:X} should FAIL", addr);
+    }
+
+    #[test]
+    fn test_halfword_alignment_invalid_odd_2() {
+        // Test halfword access at another odd address
+        let addr = 0x1003u32;  // Binary: ...0011 (last bit = 1)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_half = M31::ONE;
+        
+        let constraint = CpuAir::halfword_alignment_constraint(addr_lo, is_half);
+        
+        assert_ne!(constraint, M31::ZERO, 
+            "Halfword access at odd address 0x{:X} should FAIL", addr);
+    }
+
+    #[test]
+    fn test_halfword_alignment_disabled() {
+        // Test that constraint is disabled when is_half = 0
+        let addr = 0x1001u32;  // Odd (misaligned for halfword)
+        let addr_lo = M31::new(addr & 0xFFFF);
+        let is_half = M31::ZERO;  // Not a halfword access
+        
+        let constraint = CpuAir::halfword_alignment_constraint(addr_lo, is_half);
+        
+        assert_eq!(constraint, M31::ZERO, 
+            "Constraint should be disabled when is_half = 0");
     }
 }

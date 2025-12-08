@@ -53,11 +53,16 @@ impl MemoryAir {
     /// For word access: addr mod 4 = 0.
     #[inline]
     pub fn word_alignment_constraint(addr_lo: M31, is_word: M31) -> M31 {
-        // addr_lo mod 4 = 0 means addr_lo & 3 = 0
-        // Decompose addr_lo = 4*q + r where r in {0,1,2,3}
-        // Constraint: is_word * r = 0
-        // Requires auxiliary witness for r.
-        // Placeholder:
-        is_word * (addr_lo - addr_lo) // Always 0 for now
+        // Check 4-byte alignment: addr % 4 == 0
+        // In M31 field: compute addr_lo mod 4
+        // We extract bottom 2 bits by: addr_lo - 4 * floor(addr_lo / 4)
+        
+        let four = M31::new(4);
+        let quotient = M31::new(addr_lo.as_u32() / 4);  // Integer division
+        let remainder = addr_lo - quotient * four;       // addr_lo % 4
+        
+        // Constraint: when is_word = 1, remainder must be 0
+        // If remainder != 0, constraint is non-zero → proof fails
+        is_word * remainder
     }
 }
