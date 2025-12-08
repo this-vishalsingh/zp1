@@ -592,6 +592,7 @@ fn prove_command(
         num_queries: queries,
         fri_folding_factor: 2,
         security_bits: 100,
+        entry_point: 0x0,
     };
     
     let trace_columns = columns.to_columns();
@@ -645,6 +646,7 @@ fn prove_command(
             num_queries: queries,
             fri_folding_factor: 2,
             security_bits: 100,
+        entry_point: 0x0,
         },
     };
     
@@ -1060,6 +1062,7 @@ fn bench_command(log_size: usize) {
         num_queries: 50,
         fri_folding_factor: 2,
         security_bits: 100,
+        entry_point: 0x0,
     };
     
     let mut prover = StarkProver::new(config);

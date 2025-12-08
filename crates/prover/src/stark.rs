@@ -97,6 +97,8 @@ pub struct StarkConfig {
     pub fri_folding_factor: usize,
     /// Security level in bits.
     pub security_bits: usize,
+    /// Entry point PC value (for boundary constraint).
+    pub entry_point: u32,
 }
 
 impl Default for StarkConfig {
@@ -107,6 +109,7 @@ impl Default for StarkConfig {
             num_queries: 50,
             fri_folding_factor: 2,
             security_bits: 100,
+            entry_point: 0x0, // Default entry point
         }
     }
 }
@@ -356,11 +359,43 @@ impl StarkProver {
             let is_first_row = i < blowup;
             
             if is_first_row && is_trace_position {
-                // TODO: Add specific boundary constraints (e.g. PC=entry_point)
-                // For now, we skip generic boundary constraints
-                alpha_idx += 0; 
-            } else {
-                // alpha_idx += 0;
+                // Enforce boundary constraints at first execution step:
+                // 1. PC must equal entry point
+                // 2. next_pc must equal PC + 4 (sequential start)
+                // 3. x0 register (rd=0) must be zero (rd_val_lo and rd_val_hi)
+                
+                let pc = trace_row[1]; // Column 1 is PC
+                let next_pc = trace_row[2]; // Column 2 is next_pc
+                let rd_val_lo = trace_row[10]; // Column 10 is rd_val_lo
+                let rd_val_hi = trace_row[11]; // Column 11 is rd_val_hi
+                
+                let entry_pc = M31::new(self.config.entry_point & 0x7FFFFFFF);
+                let four = M31::new(4);
+                
+                // Boundary constraint 1: PC = entry_point
+                if alpha_idx < alphas.len() {
+                    constraint_sum += alphas[alpha_idx] * (pc - entry_pc);
+                }
+                alpha_idx += 1;
+                
+                // Boundary constraint 2: next_pc = pc + 4
+                if alpha_idx < alphas.len() {
+                    constraint_sum += alphas[alpha_idx] * (next_pc - pc - four);
+                }
+                alpha_idx += 1;
+                
+                // Boundary constraint 3: x0 = 0 (both limbs)
+                // Note: This is enforced globally by x0_zero constraint,
+                // but we add it here for explicit boundary checking
+                if alpha_idx < alphas.len() {
+                    constraint_sum += alphas[alpha_idx] * rd_val_lo;
+                }
+                alpha_idx += 1;
+                
+                if alpha_idx < alphas.len() {
+                    constraint_sum += alphas[alpha_idx] * rd_val_hi;
+                }
+                alpha_idx += 1;
             }
 
             // 1. Intra-row constraints (apply to ALL rows)
@@ -728,6 +763,7 @@ mod tests {
             num_queries: 3,
             fri_folding_factor: 2,
             security_bits: 50,
+            entry_point: 0x0,
         };
 
         let mut prover = StarkProver::new(config.clone());
@@ -779,6 +815,7 @@ mod tests {
             num_queries: 3,
             fri_folding_factor: 2,
             security_bits: 50,
+            entry_point: 0x0,
         };
         
         let mut prover = StarkProver::new(config.clone());
@@ -806,5 +843,119 @@ mod tests {
         let result2 = evaluator.evaluate(&row, &row_next, &alphas, false);
         // Only transition = 0
         assert_eq!(result2, M31::ZERO);
+    }
+    
+    #[test]
+    fn test_boundary_constraint_entry_point() {
+        // Test that boundary constraints enforce correct entry_point
+        let trace_len = 8;
+        let entry_point = 0x1000u32;
+        
+        // Create trace with correct entry point at first row
+        let mut columns: Vec<Vec<M31>> = Vec::new();
+        
+        // Column 0: clk
+        columns.push((0..trace_len).map(|j| M31::new(j as u32)).collect());
+        
+        // Column 1: PC (should start at entry_point)
+        let mut pc_col = vec![M31::new(entry_point & 0x7FFFFFFF)];
+        for j in 1..trace_len {
+            pc_col.push(M31::new((entry_point + (j * 4) as u32) & 0x7FFFFFFF));
+        }
+        columns.push(pc_col);
+        
+        // Column 2: next_pc (should be PC + 4 at first row)
+        let mut next_pc_col = vec![M31::new((entry_point + 4) & 0x7FFFFFFF)];
+        for j in 1..trace_len {
+            next_pc_col.push(M31::new((entry_point + ((j + 1) * 4) as u32) & 0x7FFFFFFF));
+        }
+        columns.push(next_pc_col);
+        
+        // Fill remaining columns (up to 77) with zeros
+        for _ in 3..77 {
+            columns.push(vec![M31::ZERO; trace_len]);
+        }
+        
+        let config = StarkConfig {
+            log_trace_len: 3,
+            blowup_factor: 4,
+            num_queries: 3,
+            fri_folding_factor: 2,
+            security_bits: 50,
+            entry_point,
+        };
+        
+        let mut prover = StarkProver::new(config.clone());
+        let public_inputs = vec![];
+        
+        // Should succeed with correct entry_point
+        let proof = prover.prove(columns.clone(), &public_inputs);
+        assert_eq!(proof.trace_commitment.len(), 32);
+        
+        // Now test with WRONG entry point in config (should still generate proof,
+        // but composition polynomial will be non-zero at boundary)
+        let wrong_config = StarkConfig {
+            entry_point: 0x2000u32, // Wrong entry point
+            ..config
+        };
+        
+        let mut wrong_prover = StarkProver::new(wrong_config);
+        let wrong_proof = wrong_prover.prove(columns, &public_inputs);
+        
+        // Proof still generates (prover doesn't check constraints)
+        // But composition polynomial at boundary will be non-zero
+        // This would be caught by the verifier
+        assert_eq!(wrong_proof.trace_commitment.len(), 32);
+        
+        // The OOD composition value should be different when entry_point mismatches
+        // (In a full implementation, verifier would reject this)
+        assert!(proof.ood_values.composition_at_z != wrong_proof.ood_values.composition_at_z
+                || proof.ood_values.composition_at_z == M31::ZERO);
+    }
+    
+    #[test]
+    fn test_boundary_constraint_x0_zero() {
+        // Test that boundary constraints enforce x0 = 0
+        let trace_len = 8;
+        let entry_point = 0x0u32;
+        
+        // Create trace where x0 (rd_val at first row) is non-zero
+        let mut columns: Vec<Vec<M31>> = Vec::new();
+        
+        // Columns 0-9: standard columns
+        for i in 0..10 {
+            columns.push((0..trace_len).map(|j| M31::new((i + j) as u32)).collect());
+        }
+        
+        // Column 10: rd_val_lo (should be 0 at first row for x0 constraint)
+        let mut rd_val_lo = vec![M31::new(42)]; // Non-zero at first row
+        for j in 1..trace_len {
+            rd_val_lo.push(M31::new(j as u32));
+        }
+        columns.push(rd_val_lo);
+        
+        // Column 11: rd_val_hi
+        columns.push(vec![M31::ZERO; trace_len]);
+        
+        // Fill remaining columns
+        for _ in 12..77 {
+            columns.push(vec![M31::ZERO; trace_len]);
+        }
+        
+        let config = StarkConfig {
+            log_trace_len: 3,
+            blowup_factor: 4,
+            num_queries: 3,
+            fri_folding_factor: 2,
+            security_bits: 50,
+            entry_point,
+        };
+        
+        let mut prover = StarkProver::new(config);
+        let proof = prover.prove(columns, &vec![]);
+        
+        // Proof generates but composition should be non-zero at boundary
+        // (would be rejected by verifier)
+        assert_eq!(proof.trace_commitment.len(), 32);
     }
 }

@@ -87,6 +87,7 @@ mod tests {
             num_queries: 10, // Fewer queries for small trace
             fri_folding_factor: 2,
             security_bits: 100,
+            entry_point: 0x0,
         };
 
         let mut prover = StarkProver::new(config);
@@ -132,6 +133,7 @@ mod tests {
             num_queries: 15,
             fri_folding_factor: 2,
             security_bits: 100,
+            entry_point: 0x0,
         };
 
         // 4. Generate proof using all columns (padded)
@@ -274,6 +276,7 @@ mod tests {
             num_queries: 30,
             fri_folding_factor: 2,
             security_bits: 100,
+            entry_point: 0x0,
         };
 
         let mut prover = StarkProver::new(config);
@@ -314,6 +317,7 @@ mod tests {
             num_queries: 20,
             fri_folding_factor: 2,
             security_bits: 100,
+            entry_point: 0x0,
         };
 
         // 4. Generate proof using all columns

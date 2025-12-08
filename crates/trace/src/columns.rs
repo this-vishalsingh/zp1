@@ -206,7 +206,11 @@ pub struct TraceColumns {
     pub branch_taken: Vec<M31>,
     
     // Bitwise operation bit decompositions (32 bits each)
-    // Following blake.rs pattern for XOR bit storage
+    // INPUT decompositions (needed for proper constraint verification)
+    pub rs1_bits: [Vec<M31>; 32],  // Bit decomposition of rs1
+    pub rs2_bits: [Vec<M31>; 32],  // Bit decomposition of rs2
+    pub imm_bits: [Vec<M31>; 32],  // Bit decomposition of immediate (for ANDI/ORI/XORI)
+    // OUTPUT decompositions (result bits)
     pub and_bits: [Vec<M31>; 32],  // Bit decomposition of AND result
     pub xor_bits: [Vec<M31>; 32],  // Bit decomposition of XOR result  
     pub or_bits: [Vec<M31>; 32],   // Bit decomposition of OR result
@@ -294,7 +298,10 @@ impl TraceColumns {
             eq_result: Vec::new(),
             branch_taken: Vec::new(),
             
-            // Initialize bit arrays (32 empty vectors for each operation)
+            // Initialize bit arrays (32 empty vectors for each)
+            rs1_bits: std::array::from_fn(|_| Vec::new()),
+            rs2_bits: std::array::from_fn(|_| Vec::new()),
+            imm_bits: std::array::from_fn(|_| Vec::new()),
             and_bits: std::array::from_fn(|_| Vec::new()),
             xor_bits: std::array::from_fn(|_| Vec::new()),
             or_bits: std::array::from_fn(|_| Vec::new()),
@@ -560,20 +567,22 @@ impl TraceColumns {
             } else { 0 };
             cols.branch_taken.push(M31::new(branch_taken));
             
-            // Bitwise operation bit decomposition (following blake.rs:264-296)
-            // Decompose results to bits for cryptographic verification
+            // Bitwise operation bit decomposition
+            // INPUT decomposition (rs1, rs2, and immediate)
+            let imm_val = row.instr.imm as u32;
+            for i in 0..32 {
+                cols.rs1_bits[i].push(M31::new((rs1_val >> i) & 1));
+                cols.rs2_bits[i].push(M31::new((rs2_val >> i) & 1));
+                cols.imm_bits[i].push(M31::new((imm_val >> i) & 1));
+            }
+            
+            // OUTPUT decomposition (AND/XOR/OR results)
             let and_result = rs1_val & rs2_val;
-            for i in 0..32 {
-                cols.and_bits[i].push(M31::new((and_result >> i) & 1));
-            }
-            
             let xor_result = rs1_val ^ rs2_val;
-            for i in 0..32 {
-                cols.xor_bits[i].push(M31::new((xor_result >> i) & 1));
-            }
-            
             let or_result = rs1_val | rs2_val;
             for i in 0..32 {
+                cols.and_bits[i].push(M31::new((and_result >> i) & 1));
+                cols.xor_bits[i].push(M31::new((xor_result >> i) & 1));
                 cols.or_bits[i].push(M31::new((or_result >> i) & 1));
             }
         }
@@ -684,8 +693,11 @@ impl TraceColumns {
         self.eq_result.resize(target, M31::ZERO);
         self.branch_taken.resize(target, M31::ZERO);
         
-        // Pad bit arrays (32 bits each for AND/XOR/OR)
+        // Pad bit arrays (32 bits each for rs1/rs2 inputs and AND/XOR/OR outputs)
         for i in 0..32 {
+            self.rs1_bits[i].resize(target, M31::ZERO);
+            self.rs2_bits[i].resize(target, M31::ZERO);
+            self.imm_bits[i].resize(target, M31::ZERO);
             self.and_bits[i].resize(target, M31::ZERO);
             self.xor_bits[i].resize(target, M31::ZERO);
             self.or_bits[i].resize(target, M31::ZERO);
@@ -774,7 +786,10 @@ impl TraceColumns {
             self.branch_taken.clone(),
         ]
         .into_iter()
-        // Add bitwise bit decompositions (96 columns: 32 per operation)
+        // Add bitwise bit decompositions (192 columns: 96 input + 96 output)
+        .chain(self.rs1_bits.iter().map(|v| v.clone()))
+        .chain(self.rs2_bits.iter().map(|v| v.clone()))
+        .chain(self.imm_bits.iter().map(|v| v.clone()))
         .chain(self.and_bits.iter().map(|v| v.clone()))
         .chain(self.xor_bits.iter().map(|v| v.clone()))
         .chain(self.or_bits.iter().map(|v| v.clone()))

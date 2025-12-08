@@ -295,7 +295,12 @@ pub struct CpuTraceRow {
     pub lt_result: M31,
     pub eq_result: M31,
     
-    // Bitwise operation bit decompositions (following blake.rs pattern)
+    // Bitwise operation bit decompositions
+    // INPUT bit witnesses (for proper constraint verification)
+    pub rs1_bits: [M31; 32],
+    pub rs2_bits: [M31; 32],
+    pub imm_bits: [M31; 32],  // For immediately variant constraints
+    // OUTPUT bit witnesses
     pub and_bits: [M31; 32],
     pub xor_bits: [M31; 32],
     pub or_bits: [M31; 32],
@@ -397,10 +402,31 @@ impl CpuTraceRow {
             eq_result: cols[75],
             branch_taken: cols[76],
             
-            // Extract bit decompositions (cols 77-172: 32 per operation)
-            and_bits: std::array::from_fn(|i| cols[77 + i]),
-            xor_bits: std::array::from_fn(|i| cols[77 + 32 + i]),
-            or_bits: std::array::from_fn(|i| cols[77 + 64 + i]),
+            // Extract bit decompositions (cols 77-268: 192 total)
+            // cols 77-108: rs1_bits[32]
+            // cols 109-140: rs2_bits[32]
+            // cols 141-172: imm_bits[32]
+            // cols 173-204: and_bits[32]
+            // cols 205-236: xor_bits[32]
+            // cols 237-268: or_bits[32]
+            rs1_bits: std::array::from_fn(|i| {
+                if cols.len() > 77 + i { cols[77 + i] } else { M31::ZERO }
+            }),
+            rs2_bits: std::array::from_fn(|i| {
+                if cols.len() > 109 + i { cols[109 + i] } else { M31::ZERO }
+            }),
+            imm_bits: std::array::from_fn(|i| {
+                if cols.len() > 141 + i { cols[141 + i] } else { M31::ZERO }
+            }),
+            and_bits: std::array::from_fn(|i| {
+                if cols.len() > 173 + i { cols[173 + i] } else { M31::ZERO }
+            }),
+            xor_bits: std::array::from_fn(|i| {
+                if cols.len() > 205 + i { cols[205 + i] } else { M31::ZERO }
+            }),
+            or_bits: std::array::from_fn(|i| {
+                if cols.len() > 237 + i { cols[237 + i] } else { M31::ZERO }
+            }),
         }
     }
 }
@@ -500,7 +526,11 @@ impl ConstraintEvaluator {
     }
     
     /// AND: rd = rs1 & rs2.
-    /// Uses bit decomposition: and_bit[i] = rs1_bit[i] * rs2_bit[i] (degree-2).
+    /// Uses bit decomposition with 4 verification steps:
+    /// 1. rs1 = sum(rs1_bits[i] * 2^i)
+    /// 2. rs2 = sum(rs2_bits[i] * 2^i)
+    /// 3. and_bits[i] = rs1_bits[i] * rs2_bits[i] (boolean AND)
+    /// 4. rd = sum(and_bits[i] * 2^i)
     #[inline]
     pub fn and_constraint(row: &CpuTraceRow) -> M31 {
         if row.is_and == M31::ZERO {
@@ -512,24 +542,34 @@ impl ConstraintEvaluator {
         let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
         let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
         
-        // Verify each bit: and_bit[i] = (rs1 >> i & 1) * (rs2 >> i & 1)
-        let mut bit_check = M31::ZERO;
-        for i in 0..32 {
-            let pow2 = M31::new(1 << (i % 31));  // Handle M31 modulus
-            let rs1_bit = (rs1_full.value() >> i) & 1;
-            let rs2_bit = (rs2_full.value() >> i) & 1;
-            let expected_bit = M31::new(rs1_bit) * M31::new(rs2_bit);
-            bit_check += row.and_bits[i] - expected_bit;
-        }
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut rs2_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut and_check = M31::ZERO;
         
-        // Verify rd = sum of bits * powers of 2
-        let mut reconstructed = M31::ZERO;
-        for i in 0..32 {
-            let pow2 = M31::new(if i < 31 { 1 << i } else { 1 << 30 });
-            reconstructed += row.and_bits[i] * pow2;
+        for i in 0..31 {  // First 31 bits (fit in M31)
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            rs2_reconstructed += row.rs2_bits[i] * pow2;
+            rd_reconstructed += row.and_bits[i] * pow2;
+            // AND logic: and_bits[i] = rs1_bits[i] * rs2_bits[i]
+            and_check += row.and_bits[i] - row.rs1_bits[i] * row.rs2_bits[i];
         }
+        // Bit 31 separately to handle field overflow
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        rs2_reconstructed += row.rs2_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.and_bits[31] * pow2_30 * M31::new(2);
+        and_check += row.and_bits[31] - row.rs1_bits[31] * row.rs2_bits[31];
         
-        row.is_and * (bit_check + (rd_full - reconstructed))
+        // All 4 checks in one constraint:
+        // (rs1 reconstruction) + (rs2 reconstruction) + (AND logic) + (rd reconstruction)
+        row.is_and * (
+            (rs1_full - rs1_reconstructed) +
+            (rs2_full - rs2_reconstructed) +
+            and_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// OR: rd = rs1 | rs2.
@@ -545,23 +585,34 @@ impl ConstraintEvaluator {
         let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
         let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
         
-        // Verify each bit: or = a + b - ab
-        let mut bit_check = M31::ZERO;
-        for i in 0..32 {
-            let rs1_bit = M31::new((rs1_full.value() >> i) & 1);
-            let rs2_bit = M31::new((rs2_full.value() >> i) & 1);
-            let expected_bit = rs1_bit + rs2_bit - rs1_bit * rs2_bit;
-            bit_check += row.or_bits[i] - expected_bit;
-        }
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut rs2_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut or_check = M31::ZERO;
         
-        // Verify rd = sum of bits * powers of 2
-        let mut reconstructed = M31::ZERO;
-        for i in 0..32 {
-            let pow2 = M31::new(if i < 31 { 1 << i } else { 1 << 30 });
-            reconstructed += row.or_bits[i] * pow2;
+        for i in 0..31 {
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            rs2_reconstructed += row.rs2_bits[i] * pow2;
+            rd_reconstructed += row.or_bits[i] * pow2;
+            // OR logic: or_bit = a + b - ab
+            let expected_or = row.rs1_bits[i] + row.rs2_bits[i] - row.rs1_bits[i] * row.rs2_bits[i];
+            or_check += row.or_bits[i] - expected_or;
         }
+        // Bit 31
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        rs2_reconstructed += row.rs2_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.or_bits[31] * pow2_30 * M31::new(2);
+        let expected_or = row.rs1_bits[31] + row.rs2_bits[31] - row.rs1_bits[31] * row.rs2_bits[31];
+        or_check += row.or_bits[31] - expected_or;
         
-        row.is_or * (bit_check + (rd_full - reconstructed))
+        row.is_or * (
+            (rs1_full - rs1_reconstructed) +
+            (rs2_full - rs2_reconstructed) +
+            or_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// XOR: rd = rs1 ^ rs2.
@@ -577,23 +628,34 @@ impl ConstraintEvaluator {
         let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
         let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
         
-        // Verify each bit: xor = a + b - 2ab
-        let mut bit_check = M31::ZERO;
-        for i in 0..32 {
-            let rs1_bit = M31::new((rs1_full.value() >> i) & 1);
-            let rs2_bit = M31::new((rs2_full.value() >> i) & 1);
-            let expected_bit = rs1_bit + rs2_bit - M31::new(2) * rs1_bit * rs2_bit;
-            bit_check += row.xor_bits[i] - expected_bit;
-        }
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut rs2_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut xor_check = M31::ZERO;
         
-        // Verify rd = sum of bits * powers of 2
-        let mut reconstructed = M31::ZERO;
-        for i in 0..32 {
-            let pow2 = M31::new(if i < 31 { 1 << i } else { 1 << 30 });
-            reconstructed += row.xor_bits[i] * pow2;
+        for i in 0..31 {
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            rs2_reconstructed += row.rs2_bits[i] * pow2;
+            rd_reconstructed += row.xor_bits[i] * pow2;
+            // XOR logic: xor_bit = a + b - 2ab
+            let expected_xor = row.rs1_bits[i] + row.rs2_bits[i] - M31::new(2) * row.rs1_bits[i] * row.rs2_bits[i];
+            xor_check += row.xor_bits[i] - expected_xor;
         }
+        // Bit 31
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        rs2_reconstructed += row.rs2_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.xor_bits[31] * pow2_30 * M31::new(2);
+        let expected_xor = row.rs1_bits[31] + row.rs2_bits[31] - M31::new(2) * row.rs1_bits[31] * row.rs2_bits[31];
+        xor_check += row.xor_bits[31] - expected_xor;
         
-        row.is_xor * (bit_check + (rd_full - reconstructed))
+        row.is_xor * (
+            (rs1_full - rs1_reconstructed) +
+            (rs2_full - rs2_reconstructed) +
+            xor_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// SLL: rd = rs1 << (rs2 & 0x1f).
@@ -673,22 +735,130 @@ impl ConstraintEvaluator {
     }
     
     /// ANDI: rd = rs1 & imm.
+    /// Uses rs1_bits and imm_bits witnesses for proper verification.
     #[inline]
     pub fn andi_constraint(row: &CpuTraceRow) -> M31 {
-        // Bitwise AND with immediate (uses lookup tables in practice)
-        row.is_andi * M31::ZERO
+        if row.is_andi == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let imm_full = row.imm;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut imm_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut and_check = M31::ZERO;
+        
+        for i in 0..31 {
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            imm_reconstructed += row.imm_bits[i] * pow2;
+            rd_reconstructed += row.and_bits[i] * pow2;
+            // AND logic: and_bits[i] = rs1_bits[i] * imm_bits[i]
+            and_check += row.and_bits[i] - row.rs1_bits[i] * row.imm_bits[i];
+        }
+        // Bit 31
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        imm_reconstructed += row.imm_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.and_bits[31] * pow2_30 * M31::new(2);
+        and_check += row.and_bits[31] - row.rs1_bits[31] * row.imm_bits[31];
+        
+        row.is_andi * (
+            (rs1_full - rs1_reconstructed) +
+            (imm_full - imm_reconstructed) +
+            and_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// ORI: rd = rs1 | imm.
+    /// Uses rs1_bits and imm_bits witnesses for proper verification.
     #[inline]
     pub fn ori_constraint(row: &CpuTraceRow) -> M31 {
-        row.is_ori * M31::ZERO
+        if row.is_ori == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let imm_full = row.imm;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut imm_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut or_check = M31::ZERO;
+        
+        for i in 0..31 {
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            imm_reconstructed += row.imm_bits[i] * pow2;
+            rd_reconstructed += row.or_bits[i] * pow2;
+            // OR logic: or_bit = a + b - ab
+            let expected_or = row.rs1_bits[i] + row.imm_bits[i] - row.rs1_bits[i] * row.imm_bits[i];
+            or_check += row.or_bits[i] - expected_or;
+        }
+        // Bit 31
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        imm_reconstructed += row.imm_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.or_bits[31] * pow2_30 * M31::new(2);
+        let expected_or = row.rs1_bits[31] + row.imm_bits[31] - row.rs1_bits[31] * row.imm_bits[31];
+        or_check += row.or_bits[31] - expected_or;
+        
+        row.is_ori * (
+            (rs1_full - rs1_reconstructed) +
+            (imm_full - imm_reconstructed) +
+            or_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// XORI: rd = rs1 ^ imm.
+    /// Uses rs1_bits and imm_bits witnesses for proper verification.
     #[inline]
     pub fn xori_constraint(row: &CpuTraceRow) -> M31 {
-        row.is_xori * M31::ZERO
+        if row.is_xori == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let imm_full = row.imm;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        let mut rs1_reconstructed = M31::ZERO;
+        let mut imm_reconstructed = M31::ZERO;
+        let mut rd_reconstructed = M31::ZERO;
+        let mut xor_check = M31::ZERO;
+        
+        for i in 0..31 {
+            let pow2 = M31::new(1 << i);
+            rs1_reconstructed += row.rs1_bits[i] * pow2;
+            imm_reconstructed += row.imm_bits[i] * pow2;
+            rd_reconstructed += row.xor_bits[i] * pow2;
+            // XOR logic: xor_bit = a + b - 2ab
+            let expected_xor = row.rs1_bits[i] + row.imm_bits[i] - M31::new(2) * row.rs1_bits[i] * row.imm_bits[i];
+            xor_check += row.xor_bits[i] - expected_xor;
+        }
+        // Bit 31
+        let pow2_30 = M31::new(1 << 30);
+        rs1_reconstructed += row.rs1_bits[31] * pow2_30 * M31::new(2);
+        imm_reconstructed += row.imm_bits[31] * pow2_30 * M31::new(2);
+        rd_reconstructed += row.xor_bits[31] * pow2_30 * M31::new(2);
+        let expected_xor = row.rs1_bits[31] + row.imm_bits[31] - M31::new(2) * row.rs1_bits[31] * row.imm_bits[31];
+        xor_check += row.xor_bits[31] - expected_xor;
+        
+        row.is_xori * (
+            (rs1_full - rs1_reconstructed) +
+            (imm_full - imm_reconstructed) +
+            xor_check +
+            (rd_full - rd_reconstructed)
+        )
     }
     
     /// SLTI: rd = (rs1 < imm) ? 1 : 0 (signed).

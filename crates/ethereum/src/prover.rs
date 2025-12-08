@@ -103,6 +103,7 @@ impl TransactionProver {
             num_queries: self.config.num_queries,
             fri_folding_factor: 2,
             security_bits: self.config.security_bits,
+            entry_point: 0x0, // Default entry point
         };
 
         // Create prover if needed
