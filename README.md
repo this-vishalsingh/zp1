@@ -75,7 +75,7 @@ ELF Binary → Executor → Trace → Prover → Proof
 
 **Known Limitations**:
 - Circle FFT is O(n²) - needs butterfly optimization
-- GPU acceleration (Work in Progress: Metal/CUDA backends scaffolded)
+- GPU: Metal implemented (`--features gpu-metal`), CUDA scaffolded
 - No recursion/aggregation
 
 ## License

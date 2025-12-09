@@ -6,9 +6,9 @@ license.workspace = true
 
 [features]
 default = []
-metal = []  # Enable Metal GPU backend (macOS)
-cuda = []   # Enable CUDA GPU backend (NVIDIA)
-gpu = ["metal", "cuda"]  # Enable all GPU backends
+gpu-metal = ["metal"]  # Enable Metal GPU backend (macOS)
+cuda = []              # Enable CUDA GPU backend (NVIDIA)
+gpu = ["gpu-metal", "cuda"]  # Enable all GPU backends
 
 [dependencies]
 zp1-primitives = { workspace = true }
@@ -21,6 +21,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
+
+# Optional Metal GPU support (macOS only)
+metal = { version = "0.28", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
 
 [dev-dependencies]
 rand = { workspace = true }

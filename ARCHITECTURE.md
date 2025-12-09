@@ -61,7 +61,7 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 | :--- | :--- | :--- | :--- |
 | **Recursion** | `snark` wrappers exist | **Segmented STARK Recursion** | To prove long programs, split trace into N segments. Recursively prove each segment into a single proof. |
 | **Memory** | Basic consistency | **Paged Memory / Write-once** | For massive memory usage, simpler access patterns or "memory-as-external-lookup" can save constraints. |
-| **GPU Acceleration** | Scaffolded (CPU fallback) | **Native Metal/CUDA Kernels** | Fundamental for checking large traces in reasonable time (FFT/NTT are parallelizable). |
+| **GPU Acceleration** | ✅ Native Metal kernels | **CUDA Parity** | Metal NTT/LDE implemented; CUDA kernels need runtime integration. |
 
 ---
 
