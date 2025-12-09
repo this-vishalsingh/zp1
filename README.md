@@ -54,6 +54,10 @@ ELF Binary → Executor → Trace → Prover → Proof
 | `air` | Constraint functions for all instructions |
 | `prover` | STARK prover with FRI |
 | `verifier` | Proof verification |
+| `delegation` | Precompile circuits (Keccak, SHA2, ECRECOVER) |
+| `trace` | Trace generation data structures |
+| `ethereum` | Ethereum integration and verification |
+| `cli` | Command line interface |
 
 ## Status
 
@@ -66,10 +70,12 @@ ELF Binary → Executor → Trace → Prover → Proof
 - ✅ Memory consistency integration
 - ✅ Range constraints (16-bit validation)
 - ✅ FRI folding (y-coordinate division)
+- ✅ Cryptographic precompiles (Keccak, SHA2, etc.)
+- ✅ Bitwise lookup tables (8-10x speedup)
 
 **Known Limitations**:
 - Circle FFT is O(n²) - needs butterfly optimization
-- No GPU acceleration yet
+- GPU acceleration (Work in Progress: Metal/CUDA backends scaffolded)
 - No recursion/aggregation
 
 ## License

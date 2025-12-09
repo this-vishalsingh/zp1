@@ -59,10 +59,9 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 
 | Feature | Current Status | Recommended Upgrade | Why? |
 | :--- | :--- | :--- | :--- |
-| **Bitwise Ops** | Polynomial Constraints | **Bitwise Tables (Lookups)** | Current `rv32im.rs` bit logic is expensive (degree increases or many columns). Global Lookup tables for 8/16-bit logic Ops reduces trace cost. |
 | **Recursion** | `snark` wrappers exist | **Segmented STARK Recursion** | To prove long programs, split trace into N segments. Recursively prove each segment into a single proof. |
 | **Memory** | Basic consistency | **Paged Memory / Write-once** | For massive memory usage, simpler access patterns or "memory-as-external-lookup" can save constraints. |
-| **Precompiles** | Syscall traits present | **Dedicated AIR Chips** | Implement distinct AIR constraints for Keccak/Poseidon. This is the single biggest speedup for ZK applications. |
+| **GPU Acceleration** | Scaffolded (CPU fallback) | **Native Metal/CUDA Kernels** | Fundamental for checking large traces in reasonable time (FFT/NTT are parallelizable). |
 
 ---
 
@@ -71,16 +70,16 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 Why Circle STARKs specifically?
 
 ```mermaid
-graph LR
-    subgraph Traditional STARK
-        F[("Field Fp")] --> |"Multiplicative Subgroup"| D[("Domain size 2^n")]
-        D --> |"Requires p-1 divisible by 2^n"| Limit["Limits Field Choice"]
+flowchart LR
+    subgraph TS["Traditional STARK"]
+        F["Field Fp"] -->|"Multiplicative Subgroup"| D["Domain size 2^n"]
+        D -->|"Requires p-1 divisible by 2^n"| Limit["Limits Field Choice"]
     end
     
-    subgraph Circle STARK
-        M31[("Mersenne 31")] --> |"Circle Group x^2+y^2=1"| C[("Circle Domain")]
-        C --> |"Size = p+1 = 2^31"| Anypow[("Fits ANY power of 2")]
-        Anypow --> |"Fast Arithmetic"| Speed["Max Performance"]
+    subgraph CS["Circle STARK"]
+        M31["Mersenne 31"] -->|"Circle Group x^2+y^2=1"| C["Circle Domain"]
+        C -->|"Size = p+1 = 2^31"| Anypow["Fits ANY power of 2"]
+        Anypow -->|"Fast Arithmetic"| Speed["Max Performance"]
     end
 ```
 

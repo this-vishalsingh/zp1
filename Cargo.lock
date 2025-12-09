@@ -5519,6 +5519,7 @@ name = "zp1-primitives"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "criterion",
  "p3-dft",
  "p3-field",
  "p3-matrix",
