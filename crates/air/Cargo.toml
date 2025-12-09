@@ -11,3 +11,8 @@ serde = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "constraint_bench"
+harness = false

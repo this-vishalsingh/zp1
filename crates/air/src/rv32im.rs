@@ -304,6 +304,13 @@ pub struct CpuTraceRow {
     pub and_bits: [M31; 32],
     pub xor_bits: [M31; 32],
     pub or_bits: [M31; 32],
+    
+    // Byte decompositions for lookup table integration (4 bytes per 32-bit value)
+    pub rs1_bytes: [M31; 4],
+    pub rs2_bytes: [M31; 4],
+    pub and_result_bytes: [M31; 4],
+    pub or_result_bytes: [M31; 4],
+    pub xor_result_bytes: [M31; 4],
 }
 
 impl CpuTraceRow {
@@ -426,6 +433,28 @@ impl CpuTraceRow {
             }),
             or_bits: std::array::from_fn(|i| {
                 if cols.len() > 237 + i { cols[237 + i] } else { M31::ZERO }
+            }),
+            
+            // Extract byte decompositions (cols 269-288: 20 total)
+            // cols 269-272: rs1_bytes[4]
+            // cols 273-276: rs2_bytes[4]
+            // cols 277-280: and_result_bytes[4]
+            // cols 281-284: or_result_bytes[4]
+            // cols 285-288: xor_result_bytes[4]
+            rs1_bytes: std::array::from_fn(|i| {
+                if cols.len() > 269 + i { cols[269 + i] } else { M31::ZERO }
+            }),
+            rs2_bytes: std::array::from_fn(|i| {
+                if cols.len() > 273 + i { cols[273 + i] } else { M31::ZERO }
+            }),
+            and_result_bytes: std::array::from_fn(|i| {
+                if cols.len() > 277 + i { cols[277 + i] } else { M31::ZERO }
+            }),
+            or_result_bytes: std::array::from_fn(|i| {
+                if cols.len() > 281 + i { cols[281 + i] } else { M31::ZERO }
+            }),
+            xor_result_bytes: std::array::from_fn(|i| {
+                if cols.len() > 285 + i { cols[285 + i] } else { M31::ZERO }
             }),
         }
     }
@@ -655,6 +684,134 @@ impl ConstraintEvaluator {
             (rs2_full - rs2_reconstructed) +
             xor_check +
             (rd_full - rd_reconstructed)
+        )
+    }
+    
+    // ==================== LOOKUP-BASED CONSTRAINTS ====================
+    // These use 4 byte decomposition instead of 32 bit decomposition.
+    // The actual lookup verification is handled by LogUp in the prover.
+    // Here we verify:
+    // 1. Byte decomposition: value = sum(bytes[i] * 256^i)
+    // 2. Byte range: 0 <= bytes[i] < 256 (via lookup table membership)
+    // 3. Bitwise correctness: result_bytes match operation on input bytes (via lookup)
+    
+    /// AND using lookup tables: rd = rs1 & rs2.
+    /// Verifies byte decomposition; LogUp handles operation correctness.
+    #[inline]
+    pub fn and_constraint_lookup(row: &CpuTraceRow) -> M31 {
+        if row.is_and == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        // Verify byte decomposition: value = b0 + b1*256 + b2*256^2 + b3*256^3
+        let n256 = M31::new(256);
+        let n256_2 = M31::new(256 * 256);
+        // Note: 256^3 = 16777216, which fits in M31
+        let n256_3 = M31::new(256 * 256 * 256);
+        
+        let rs1_from_bytes = row.rs1_bytes[0] 
+            + row.rs1_bytes[1] * n256 
+            + row.rs1_bytes[2] * n256_2 
+            + row.rs1_bytes[3] * n256_3;
+            
+        let rs2_from_bytes = row.rs2_bytes[0] 
+            + row.rs2_bytes[1] * n256 
+            + row.rs2_bytes[2] * n256_2 
+            + row.rs2_bytes[3] * n256_3;
+            
+        let rd_from_bytes = row.and_result_bytes[0] 
+            + row.and_result_bytes[1] * n256 
+            + row.and_result_bytes[2] * n256_2 
+            + row.and_result_bytes[3] * n256_3;
+        
+        // Constraint: all decompositions must match
+        row.is_and * (
+            (rs1_full - rs1_from_bytes) +
+            (rs2_full - rs2_from_bytes) +
+            (rd_full - rd_from_bytes)
+        )
+    }
+    
+    /// OR using lookup tables: rd = rs1 | rs2.
+    /// Verifies byte decomposition; LogUp handles operation correctness.
+    #[inline]
+    pub fn or_constraint_lookup(row: &CpuTraceRow) -> M31 {
+        if row.is_or == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        let n256 = M31::new(256);
+        let n256_2 = M31::new(256 * 256);
+        let n256_3 = M31::new(256 * 256 * 256);
+        
+        let rs1_from_bytes = row.rs1_bytes[0] 
+            + row.rs1_bytes[1] * n256 
+            + row.rs1_bytes[2] * n256_2 
+            + row.rs1_bytes[3] * n256_3;
+            
+        let rs2_from_bytes = row.rs2_bytes[0] 
+            + row.rs2_bytes[1] * n256 
+            + row.rs2_bytes[2] * n256_2 
+            + row.rs2_bytes[3] * n256_3;
+            
+        let rd_from_bytes = row.or_result_bytes[0] 
+            + row.or_result_bytes[1] * n256 
+            + row.or_result_bytes[2] * n256_2 
+            + row.or_result_bytes[3] * n256_3;
+        
+        row.is_or * (
+            (rs1_full - rs1_from_bytes) +
+            (rs2_full - rs2_from_bytes) +
+            (rd_full - rd_from_bytes)
+        )
+    }
+    
+    /// XOR using lookup tables: rd = rs1 ^ rs2.
+    /// Verifies byte decomposition; LogUp handles operation correctness.
+    #[inline]
+    pub fn xor_constraint_lookup(row: &CpuTraceRow) -> M31 {
+        if row.is_xor == M31::ZERO {
+            return M31::ZERO;
+        }
+
+        let two_16 = M31::new(1 << 16);
+        let rs1_full = row.rs1_val_lo + row.rs1_val_hi * two_16;
+        let rs2_full = row.rs2_val_lo + row.rs2_val_hi * two_16;
+        let rd_full = row.rd_val_lo + row.rd_val_hi * two_16;
+        
+        let n256 = M31::new(256);
+        let n256_2 = M31::new(256 * 256);
+        let n256_3 = M31::new(256 * 256 * 256);
+        
+        let rs1_from_bytes = row.rs1_bytes[0] 
+            + row.rs1_bytes[1] * n256 
+            + row.rs1_bytes[2] * n256_2 
+            + row.rs1_bytes[3] * n256_3;
+            
+        let rs2_from_bytes = row.rs2_bytes[0] 
+            + row.rs2_bytes[1] * n256 
+            + row.rs2_bytes[2] * n256_2 
+            + row.rs2_bytes[3] * n256_3;
+            
+        let rd_from_bytes = row.xor_result_bytes[0] 
+            + row.xor_result_bytes[1] * n256 
+            + row.xor_result_bytes[2] * n256_2 
+            + row.xor_result_bytes[3] * n256_3;
+        
+        row.is_xor * (
+            (rs1_full - rs1_from_bytes) +
+            (rs2_full - rs2_from_bytes) +
+            (rd_full - rd_from_bytes)
         )
     }
     
@@ -1713,5 +1870,111 @@ mod tests {
         
         // Only a few constraints should be non-zero (for inactive instructions)
         assert!(non_zero < constraints.len());
+    }
+    
+    #[test]
+    fn test_and_constraint_lookup() {
+        let mut row = CpuTraceRow::default();
+        
+        // AND: 0x12345678 & 0x0F0F0F0F = 0x02040608
+        row.is_and = M31::ONE;
+        
+        // rs1 = 0x12345678
+        row.rs1_val_lo = M31::new(0x5678);
+        row.rs1_val_hi = M31::new(0x1234);
+        row.rs1_bytes[0] = M31::new(0x78);
+        row.rs1_bytes[1] = M31::new(0x56);
+        row.rs1_bytes[2] = M31::new(0x34);
+        row.rs1_bytes[3] = M31::new(0x12);
+        
+        // rs2 = 0x0F0F0F0F
+        row.rs2_val_lo = M31::new(0x0F0F);
+        row.rs2_val_hi = M31::new(0x0F0F);
+        row.rs2_bytes[0] = M31::new(0x0F);
+        row.rs2_bytes[1] = M31::new(0x0F);
+        row.rs2_bytes[2] = M31::new(0x0F);
+        row.rs2_bytes[3] = M31::new(0x0F);
+        
+        // Result = 0x02040608
+        row.rd_val_lo = M31::new(0x0608);
+        row.rd_val_hi = M31::new(0x0204);
+        row.and_result_bytes[0] = M31::new(0x08);  // 0x78 & 0x0F = 0x08
+        row.and_result_bytes[1] = M31::new(0x06);  // 0x56 & 0x0F = 0x06
+        row.and_result_bytes[2] = M31::new(0x04);  // 0x34 & 0x0F = 0x04
+        row.and_result_bytes[3] = M31::new(0x02);  // 0x12 & 0x0F = 0x02
+        
+        let c = ConstraintEvaluator::and_constraint_lookup(&row);
+        assert_eq!(c, M31::ZERO, "Lookup AND constraint should be satisfied");
+    }
+    
+    #[test]
+    fn test_or_constraint_lookup() {
+        let mut row = CpuTraceRow::default();
+        
+        // OR: 0x12000034 | 0x00560078 = 0x125600BC
+        row.is_or = M31::ONE;
+        
+        // rs1 = 0x12000034
+        row.rs1_val_lo = M31::new(0x0034);
+        row.rs1_val_hi = M31::new(0x1200);
+        row.rs1_bytes[0] = M31::new(0x34);
+        row.rs1_bytes[1] = M31::new(0x00);
+        row.rs1_bytes[2] = M31::new(0x00);
+        row.rs1_bytes[3] = M31::new(0x12);
+        
+        // rs2 = 0x00560078
+        row.rs2_val_lo = M31::new(0x0078);
+        row.rs2_val_hi = M31::new(0x0056);
+        row.rs2_bytes[0] = M31::new(0x78);
+        row.rs2_bytes[1] = M31::new(0x00);
+        row.rs2_bytes[2] = M31::new(0x56);
+        row.rs2_bytes[3] = M31::new(0x00);
+        
+        // Result = 0x125600BC (0x34 | 0x78 = 0x7C, but let's use correct values)
+        // Actually: 0x34 | 0x78 = 0x7C, 0x00 | 0x00 = 0x00, 0x00 | 0x56 = 0x56, 0x12 | 0x00 = 0x12
+        row.rd_val_lo = M31::new(0x007C);
+        row.rd_val_hi = M31::new(0x1256);
+        row.or_result_bytes[0] = M31::new(0x7C);  // 0x34 | 0x78
+        row.or_result_bytes[1] = M31::new(0x00);  // 0x00 | 0x00
+        row.or_result_bytes[2] = M31::new(0x56);  // 0x00 | 0x56
+        row.or_result_bytes[3] = M31::new(0x12);  // 0x12 | 0x00
+        
+        let c = ConstraintEvaluator::or_constraint_lookup(&row);
+        assert_eq!(c, M31::ZERO, "Lookup OR constraint should be satisfied");
+    }
+    
+    #[test]
+    fn test_xor_constraint_lookup() {
+        let mut row = CpuTraceRow::default();
+        
+        // XOR: 0xAAAAAAAA ^ 0x55555555 = 0xFFFFFFFF
+        row.is_xor = M31::ONE;
+        
+        // rs1 = 0xAAAAAAAA
+        row.rs1_val_lo = M31::new(0xAAAA);
+        row.rs1_val_hi = M31::new(0xAAAA);
+        row.rs1_bytes[0] = M31::new(0xAA);
+        row.rs1_bytes[1] = M31::new(0xAA);
+        row.rs1_bytes[2] = M31::new(0xAA);
+        row.rs1_bytes[3] = M31::new(0xAA);
+        
+        // rs2 = 0x55555555
+        row.rs2_val_lo = M31::new(0x5555);
+        row.rs2_val_hi = M31::new(0x5555);
+        row.rs2_bytes[0] = M31::new(0x55);
+        row.rs2_bytes[1] = M31::new(0x55);
+        row.rs2_bytes[2] = M31::new(0x55);
+        row.rs2_bytes[3] = M31::new(0x55);
+        
+        // Result = 0xFFFFFFFF
+        row.rd_val_lo = M31::new(0xFFFF);
+        row.rd_val_hi = M31::new(0xFFFF);
+        row.xor_result_bytes[0] = M31::new(0xFF);  // 0xAA ^ 0x55 = 0xFF
+        row.xor_result_bytes[1] = M31::new(0xFF);
+        row.xor_result_bytes[2] = M31::new(0xFF);
+        row.xor_result_bytes[3] = M31::new(0xFF);
+        
+        let c = ConstraintEvaluator::xor_constraint_lookup(&row);
+        assert_eq!(c, M31::ZERO, "Lookup XOR constraint should be satisfied");
     }
 }

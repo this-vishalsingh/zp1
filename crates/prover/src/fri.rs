@@ -34,13 +34,45 @@ pub struct FriConfig {
     pub final_degree: usize,
 }
 
+/// Security level presets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SecurityLevel {
+    /// 80-bit security (fast, suitable for testing)
+    Bits80,
+    /// 100-bit security (production minimum)
+    Bits100,
+    /// 128-bit security (recommended for high-value applications)
+    Bits128,
+}
+
 impl FriConfig {
-    /// Create a default FRI configuration.
+    /// Create a default FRI configuration (100-bit security).
     pub fn new(log_domain_size: usize) -> Self {
+        Self::with_security(log_domain_size, SecurityLevel::Bits100)
+    }
+    
+    /// Create a FRI configuration with specified security level.
+    pub fn with_security(log_domain_size: usize, level: SecurityLevel) -> Self {
+        let num_queries = match level {
+            SecurityLevel::Bits80 => 40,   // ~80 bits from FRI
+            SecurityLevel::Bits100 => 50,  // ~100 bits from FRI  
+            SecurityLevel::Bits128 => 64,  // ~128 bits from FRI
+        };
+        
         Self {
             log_domain_size,
             folding_factor: 2,
-            num_queries: 30,
+            num_queries,
+            final_degree: 8,
+        }
+    }
+    
+    /// Create a fast configuration for testing (reduced security).
+    pub fn fast(log_domain_size: usize) -> Self {
+        Self {
+            log_domain_size,
+            folding_factor: 2,
+            num_queries: 10,  // Fast but insecure
             final_degree: 8,
         }
     }

@@ -53,10 +53,10 @@ fn bench_fri_fold(c: &mut Criterion) {
     
     for log_size in [10, 12, 14, 16] {
         let size = 1 << log_size;
-        let values: Vec<QM31> = (0..size)
-            .map(|i| QM31::from(M31::new(i as u32)))
+        let values: Vec<M31> = (0..size)
+            .map(|i| M31::new(i as u32))
             .collect();
-        let alpha = QM31::from(M31::new(12345));
+        let alpha = M31::new(12345);
         
         group.bench_with_input(
             BenchmarkId::new("parallel", format!("2^{}", log_size)),
@@ -200,6 +200,200 @@ fn bench_circle_fft(c: &mut Criterion) {
     group.finish();
 }
 
+// =============== GPU vs CPU Benchmarks ===============
+
+fn bench_gpu_ntt(c: &mut Criterion) {
+    use zp1_prover::gpu::{get_backend_for_device, DeviceType};
+    
+    let mut group = c.benchmark_group("GPU_NTT");
+    
+    // Get backends (CPU always available, Metal on macOS)
+    let cpu_backend = get_backend_for_device(DeviceType::Cpu).unwrap();
+    
+    #[cfg(target_os = "macos")]
+    let metal_backend = get_backend_for_device(DeviceType::Metal).ok();
+    #[cfg(not(target_os = "macos"))]
+    let metal_backend: Option<Box<dyn zp1_prover::gpu::GpuBackend>> = None;
+    
+    for log_size in [10, 12, 14] {
+        let size = 1 << log_size;
+        let values: Vec<u32> = (0..size).map(|i| i as u32 % ((1 << 31) - 1)).collect();
+        
+        // CPU benchmark
+        group.bench_with_input(
+            BenchmarkId::new("CPU", format!("2^{}", log_size)),
+            &values,
+            |b, vals| {
+                let mut v = vals.clone();
+                b.iter(|| {
+                    v.clone_from(vals);
+                    cpu_backend.ntt_m31(black_box(&mut v), log_size).unwrap();
+                })
+            },
+        );
+        
+        // Metal benchmark (macOS only)
+        if let Some(ref backend) = metal_backend {
+            group.bench_with_input(
+                BenchmarkId::new("Metal", format!("2^{}", log_size)),
+                &values,
+                |b, vals| {
+                    let mut v = vals.clone();
+                    b.iter(|| {
+                        v.clone_from(vals);
+                        backend.ntt_m31(black_box(&mut v), log_size).unwrap();
+                    })
+                },
+            );
+        }
+    }
+    
+    group.finish();
+}
+
+fn bench_gpu_lde(c: &mut Criterion) {
+    use zp1_prover::gpu::{get_backend_for_device, DeviceType};
+    
+    let mut group = c.benchmark_group("GPU_LDE");
+    
+    let cpu_backend = get_backend_for_device(DeviceType::Cpu).unwrap();
+    
+    #[cfg(target_os = "macos")]
+    let metal_backend = get_backend_for_device(DeviceType::Metal).ok();
+    #[cfg(not(target_os = "macos"))]
+    let metal_backend: Option<Box<dyn zp1_prover::gpu::GpuBackend>> = None;
+    
+    for log_size in [8, 10, 12] {
+        let size = 1 << log_size;
+        let coeffs: Vec<u32> = (0..size).map(|i| i as u32 % ((1 << 31) - 1)).collect();
+        let blowup = 4;
+        
+        // CPU benchmark
+        group.bench_with_input(
+            BenchmarkId::new("CPU", format!("2^{}", log_size)),
+            &coeffs,
+            |b, c| {
+                b.iter(|| {
+                    cpu_backend.lde(black_box(c), black_box(blowup)).unwrap()
+                })
+            },
+        );
+        
+        // Metal benchmark (macOS only)
+        if let Some(ref backend) = metal_backend {
+            group.bench_with_input(
+                BenchmarkId::new("Metal", format!("2^{}", log_size)),
+                &coeffs,
+                |b, c| {
+                    b.iter(|| {
+                        backend.lde(black_box(c), black_box(blowup)).unwrap()
+                    })
+                },
+            );
+        }
+    }
+    
+    group.finish();
+}
+
+fn bench_gpu_merkle(c: &mut Criterion) {
+    use zp1_prover::gpu::{get_backend_for_device, DeviceType};
+    
+    let mut group = c.benchmark_group("GPU_Merkle");
+    
+    let cpu_backend = get_backend_for_device(DeviceType::Cpu).unwrap();
+    
+    #[cfg(target_os = "macos")]
+    let metal_backend = get_backend_for_device(DeviceType::Metal).ok();
+    #[cfg(not(target_os = "macos"))]
+    let metal_backend: Option<Box<dyn zp1_prover::gpu::GpuBackend>> = None;
+    
+    for log_size in [10, 12, 14] {
+        let size = 1 << log_size;
+        let leaves: Vec<[u8; 32]> = (0..size)
+            .map(|i| {
+                let mut h = [0u8; 32];
+                h[0..8].copy_from_slice(&(i as u64).to_le_bytes());
+                h
+            })
+            .collect();
+        
+        // CPU benchmark
+        group.bench_with_input(
+            BenchmarkId::new("CPU", format!("2^{}", log_size)),
+            &leaves,
+            |b, l| {
+                b.iter(|| {
+                    cpu_backend.merkle_tree(black_box(l)).unwrap()
+                })
+            },
+        );
+        
+        // Metal benchmark (macOS only)
+        if let Some(ref backend) = metal_backend {
+            group.bench_with_input(
+                BenchmarkId::new("Metal", format!("2^{}", log_size)),
+                &leaves,
+                |b, l| {
+                    b.iter(|| {
+                        backend.merkle_tree(black_box(l)).unwrap()
+                    })
+                },
+            );
+        }
+    }
+    
+    group.finish();
+}
+
+fn bench_gpu_batch_eval(c: &mut Criterion) {
+    use zp1_prover::gpu::{get_backend_for_device, DeviceType};
+    
+    let mut group = c.benchmark_group("GPU_BatchEval");
+    
+    let cpu_backend = get_backend_for_device(DeviceType::Cpu).unwrap();
+    
+    #[cfg(target_os = "macos")]
+    let metal_backend = get_backend_for_device(DeviceType::Metal).ok();
+    #[cfg(not(target_os = "macos"))]
+    let metal_backend: Option<Box<dyn zp1_prover::gpu::GpuBackend>> = None;
+    
+    for log_degree in [8, 10, 12] {
+        let degree = 1 << log_degree;
+        let coeffs: Vec<u32> = (0..degree).map(|i| i as u32 % ((1 << 31) - 1)).collect();
+        let num_points = 1024;
+        let points: Vec<u32> = (0..num_points).map(|i| i as u32).collect();
+        
+        // CPU benchmark
+        group.bench_with_input(
+            BenchmarkId::new("CPU", format!("deg=2^{},pts=1024", log_degree)),
+            &(&coeffs, &points),
+            |b, (c, p)| {
+                let mut results = vec![0u32; num_points];
+                b.iter(|| {
+                    cpu_backend.batch_evaluate(black_box(*c), black_box(*p), &mut results).unwrap()
+                })
+            },
+        );
+        
+        // Metal benchmark (macOS only)
+        if let Some(ref backend) = metal_backend {
+            group.bench_with_input(
+                BenchmarkId::new("Metal", format!("deg=2^{},pts=1024", log_degree)),
+                &(&coeffs, &points),
+                |b, (c, p)| {
+                    let mut results = vec![0u32; num_points];
+                    b.iter(|| {
+                        backend.batch_evaluate(black_box(*c), black_box(*p), &mut results).unwrap()
+                    })
+                },
+            );
+        }
+    }
+    
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_m31_ops,
@@ -210,5 +404,10 @@ criterion_group!(
     bench_batch_inverse,
     bench_poly_eval,
     bench_circle_fft,
+    bench_gpu_ntt,
+    bench_gpu_lde,
+    bench_gpu_merkle,
+    bench_gpu_batch_eval,
 );
 criterion_main!(benches);
+

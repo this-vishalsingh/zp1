@@ -214,6 +214,22 @@ pub struct TraceColumns {
     pub and_bits: [Vec<M31>; 32],  // Bit decomposition of AND result
     pub xor_bits: [Vec<M31>; 32],  // Bit decomposition of XOR result  
     pub or_bits: [Vec<M31>; 32],   // Bit decomposition of OR result
+    
+    // =========================================================================
+    // Byte decomposition for 8-bit lookup tables (NEW - replaces bit constraints)
+    // These columns enable 4 lookups per 32-bit operation instead of 32 polynomial constraints
+    // =========================================================================
+    
+    /// Input byte decomposition: rs1 = rs1_bytes[0] + 256*rs1_bytes[1] + ...
+    pub rs1_bytes: [Vec<M31>; 4],
+    /// Input byte decomposition: rs2 = rs2_bytes[0] + 256*rs2_bytes[1] + ...
+    pub rs2_bytes: [Vec<M31>; 4],
+    /// AND result bytes for lookup verification
+    pub and_result_bytes: [Vec<M31>; 4],
+    /// OR result bytes for lookup verification  
+    pub or_result_bytes: [Vec<M31>; 4],
+    /// XOR result bytes for lookup verification
+    pub xor_result_bytes: [Vec<M31>; 4],
 }
 
 impl TraceColumns {
@@ -305,6 +321,13 @@ impl TraceColumns {
             and_bits: std::array::from_fn(|_| Vec::new()),
             xor_bits: std::array::from_fn(|_| Vec::new()),
             or_bits: std::array::from_fn(|_| Vec::new()),
+            
+            // Initialize byte arrays (4 bytes per 32-bit value)
+            rs1_bytes: std::array::from_fn(|_| Vec::new()),
+            rs2_bytes: std::array::from_fn(|_| Vec::new()),
+            and_result_bytes: std::array::from_fn(|_| Vec::new()),
+            or_result_bytes: std::array::from_fn(|_| Vec::new()),
+            xor_result_bytes: std::array::from_fn(|_| Vec::new()),
         }
     }
 
@@ -585,6 +608,17 @@ impl TraceColumns {
                 cols.xor_bits[i].push(M31::new((xor_result >> i) & 1));
                 cols.or_bits[i].push(M31::new((or_result >> i) & 1));
             }
+            
+            // BYTE decomposition for 8-bit lookup table verification
+            // Each 32-bit value is split into 4 bytes for efficient lookup
+            for i in 0..4 {
+                let shift = i * 8;
+                cols.rs1_bytes[i].push(M31::new((rs1_val >> shift) & 0xFF));
+                cols.rs2_bytes[i].push(M31::new((rs2_val >> shift) & 0xFF));
+                cols.and_result_bytes[i].push(M31::new((and_result >> shift) & 0xFF));
+                cols.or_result_bytes[i].push(M31::new((or_result >> shift) & 0xFF));
+                cols.xor_result_bytes[i].push(M31::new((xor_result >> shift) & 0xFF));
+            }
         }
 
         cols
@@ -702,6 +736,15 @@ impl TraceColumns {
             self.xor_bits[i].resize(target, M31::ZERO);
             self.or_bits[i].resize(target, M31::ZERO);
         }
+        
+        // Pad byte arrays (4 bytes each for lookup table integration)
+        for i in 0..4 {
+            self.rs1_bytes[i].resize(target, M31::ZERO);
+            self.rs2_bytes[i].resize(target, M31::ZERO);
+            self.and_result_bytes[i].resize(target, M31::ZERO);
+            self.or_result_bytes[i].resize(target, M31::ZERO);
+            self.xor_result_bytes[i].resize(target, M31::ZERO);
+        }
     }
 
     /// Convert to a vector of columns for the prover.
@@ -793,6 +836,12 @@ impl TraceColumns {
         .chain(self.and_bits.iter().map(|v| v.clone()))
         .chain(self.xor_bits.iter().map(|v| v.clone()))
         .chain(self.or_bits.iter().map(|v| v.clone()))
+        // Add byte decompositions for lookup table integration (20 columns: 8 input + 12 output)
+        .chain(self.rs1_bytes.iter().map(|v| v.clone()))
+        .chain(self.rs2_bytes.iter().map(|v| v.clone()))
+        .chain(self.and_result_bytes.iter().map(|v| v.clone()))
+        .chain(self.or_result_bytes.iter().map(|v| v.clone()))
+        .chain(self.xor_result_bytes.iter().map(|v| v.clone()))
         .collect()
     }
 }

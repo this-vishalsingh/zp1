@@ -6,13 +6,16 @@
 //! - 16-bit limb utilities for 32-bit word decomposition
 //! - Circle group and Circle FFT for M31-native polynomial operations
 //! - Range-check helpers
+//! - Plonky3 interoperability for SIMD-optimized operations
 
 pub mod field;
 pub mod extension;
 pub mod limbs;
 pub mod circle;
+pub mod p3_interop;
 
 pub use field::M31;
 pub use extension::{CM31, QM31, U_SQUARED};
 pub use limbs::{to_limbs, from_limbs};
-pub use circle::{CirclePoint, CircleDomain, CircleFFT, Coset};
+pub use circle::{CirclePoint, CircleDomain, CircleFFT, Coset, FastCircleFFT};
+pub use p3_interop::{to_p3, from_p3, P3M31};

@@ -9,5 +9,11 @@ bytemuck = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 
+# Plonky3 SIMD-optimized primitives
+p3-field = { workspace = true }
+p3-mersenne-31 = { workspace = true }
+p3-dft = { workspace = true }
+p3-matrix = { workspace = true }
+
 [dev-dependencies]
 rand = { workspace = true }

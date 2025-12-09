@@ -9,6 +9,7 @@ pub mod fri;
 pub mod gpu;
 pub mod lde;
 pub mod logup;
+pub mod bitwise_tables;
 pub mod memory;
 pub mod parallel;
 pub mod ram;

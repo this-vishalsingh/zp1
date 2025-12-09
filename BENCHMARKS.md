@@ -48,6 +48,24 @@ cargo bench -p zp1-prover
 
 Blake2b is consistently **~20% faster** than SHA-256 due to its optimized design for 64-bit platforms.
 
+### Bitwise Constraint Evaluation (AIR)
+
+Comparing bit-based (32 iterations) vs lookup-based (4 iterations) constraint evaluation:
+
+| Constraint | Bit-based | Lookup-based | Speedup |
+|------------|-----------|--------------|---------|
+| AND        | 52.67 ns  | 5.88 ns      | **9.0x** |
+| XOR        | 61.70 ns  | 5.87 ns      | **10.5x** |
+
+**Batch Evaluation (10,000 rows):**
+
+| Method | Time | Speedup |
+|--------|------|---------|
+| Bit-based   | 558 µs | baseline |
+| Lookup-based | 68 µs  | **8.2x** |
+
+The lookup-based approach uses byte decomposition (4 bytes) instead of bit decomposition (32 bits), reducing constraint iterations by 87.5% and achieving 8-10x speedup.
+
 ### ECRECOVER (Ethereum Signature Recovery)
 
 - **Signature Recovery**: ~85-100 µs per operation
