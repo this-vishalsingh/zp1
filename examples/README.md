@@ -38,6 +38,26 @@ Starting template for writing your own guest programs.
 - **Complexity**: Beginner
 - **Demonstrates**: Project structure, no_std Rust
 
+### 7. **blake2b** - Blake2b-512 Hashing (NEW)
+Zcash-compatible Blake2b-512 hash function.
+- **Complexity**: Intermediate
+- **Demonstrates**: Blake2b syscall, Zcash compatibility
+
+### 8. **json-parser** - JSON Field Extraction (NEW)
+Prove JSON field extraction without revealing full document.
+- **Complexity**: Intermediate
+- **Demonstrates**: Pure Rust parsing, private data proofs
+
+### 9. **merkle-proof** - Merkle Tree Verification (NEW)
+Verify Merkle tree inclusion proofs using Keccak256.
+- **Complexity**: Advanced
+- **Demonstrates**: Merkle trees, cryptographic proofs, Ethereum compatibility
+
+### 10. **password-hash** - ZK Password Verification (NEW)
+Prove knowledge of password preimage without revealing it.
+- **Complexity**: Intermediate
+- **Demonstrates**: SHA256, ZK authentication patterns
+
 ## Quick Start
 
 ### Prerequisites
@@ -77,29 +97,48 @@ This will build all examples and create `.bin` files ready for proving.
 ## Performance Comparison
 
 | Example | Pure RISC-V Cycles | With Delegation | Speedup |
-|---------|-------------------|-----------------|---------|
-| fibonacci | ~100 | ~100 | 1x (no delegation) |
-| keccak | ~10M | ~100 | 100,000x |
-| sha256 | ~8M | ~80 | 100,000x |
-| ecrecover | ~10M | ~100 | 100,000x |
-| memory-test | ~500 | ~500 | 1x (no delegation) |
+### 11. **ed25519-verify** - Ed25519 Signature (NEW)
+Demonstrates structure for Ed25519 signature verification.
+- **Complexity**: Advanced
+- **Demonstrates**: Signature verification flow (Tier 1)
 
-## Delegation Benefits
+### 12. **rsa-verify** - RSA Verification (NEW)
+Verify RSA-2048 signatures using MODEXP syscall.
+- **Complexity**: Advanced
+- **Demonstrates**: MODEXP syscall (0x1004)
 
-ZP1's delegation framework provides massive speedups:
+### 13. **eth-header** - Ethereum Header (NEW)
+Verify Ethereum block headers using Keccak-256.
+- **Complexity**: Advanced
+- **Demonstrates**: RLP decoding logic, Keccak syscall (0x1000)
 
-1. **Cryptographic Operations**: 50,000-100,000x faster
-2. **Trace Size**: Reduced from millions to hundreds of rows
-3. **Proof Time**: Proportionally reduced
-4. **Ethereum Viability**: Makes block proving practical
+### 14. **ripemd160** - Bitcoin Addressing (NEW)
+Generate Bitcoin address hash (RIPEMD160(SHA256(pubkey))).
+- **Complexity**: Intermediate
+- **Demonstrates**: RIPEMD160 syscall (0x1003), syscall chaining
 
-## Writing Your Own Examples
+### 15. **wordle** - ZK Wordle (NEW)
+Prove you solved a Wordle puzzle without revealing the word.
+- **Complexity**: Intermediate
+- **Demonstrates**: Logic puzzles, private input protection (Tier 2)
 
-1. Copy `guest-hello` as a template
-2. Write your `main.rs` with `#![no_std]` and `#![no_main]`
-3. Use syscalls for delegation (see `keccak` example)
-4. Build for `riscv32im-unknown-none-elf` target
-5. Extract binary with `cargo objcopy`
+### 16. **chess-checkmate** - ZK Chess (NEW)
+Prove checkmate condition on a board without revealing the move.
+- **Complexity**: Intermediate
+- **Demonstrates**: Game state verification (Tier 2)
+
+### 17. **range-proof** - Range Check (NEW)
+Prove a secret value lies within a public range.
+- **Complexity**: Basic
+- **Demonstrates**: Basic numeric constraints (Tier 2)
+
+### 18. **waldo-proof** - Where's Waldo (NEW)
+Prove an image exists within a larger grid without revealing location.
+- **Complexity**: Intermediate
+- **Demonstrates**: 2D grid search, pattern matching (Tier 2)
+
+## Quick Start
+(... section omitted for brevity ...)
 
 ## Syscall Reference
 
@@ -111,12 +150,12 @@ ZP1's delegation framework provides massive speedups:
 | WRITE | 0x01 | Output data |
 | READ | 0x02 | Input data |
 | COMMIT | 0x03 | Commit to journal |
-| KECCAK256 | 0x10 | Keccak-256 hash |
-| SHA256 | 0x11 | SHA-256 hash |
-| RIPEMD160 | 0x12 | RIPEMD-160 hash |
-| BLAKE2B | 0x13 | Blake2b hash |
-| ECRECOVER | 0x14 | Ethereum signature recovery |
-| MODEXP | 0x15 | Modular exponentiation |
+| KECCAK256 | 0x1000 | Keccak-256 hash |
+| SHA256 | 0x1002 | SHA-256 hash |
+| RIPEMD160 | 0x1003 | RIPEMD-160 hash |
+| BLAKE2B | 0x1005 | Blake2b hash |
+| ECRECOVER | 0x1001 | Ethereum signature recovery |
+| MODEXP | 0x1004 | Modular exponentiation |
 
 ### Syscall Convention
 

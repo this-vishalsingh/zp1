@@ -8,8 +8,8 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-// ECRECOVER syscall number
-const ECRECOVER: u32 = 0x14;
+// ECRECOVER syscall number (matches CPU implementation)
+const ECRECOVER: u32 = 0x1001;
 
 /// ECRECOVER signature recovery
 /// Recovers Ethereum address from signature

@@ -1,0 +1,10 @@
+[package]
+name = "ed25519-verify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Use a no_std compatible ed25519 crate if possible, or implement minimal logic
+# For this example, we'll try to use a lightweight pure Rust implementation or mock it if complex deps are needed
+# ed25519-dalek = { version = "2.1", default-features = false, features = ["u64_backend"] }

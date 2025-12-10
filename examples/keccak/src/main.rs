@@ -8,8 +8,8 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-// Keccak-256 syscall number
-const KECCAK256: u32 = 0x10;
+// Keccak-256 syscall number (matches CPU implementation)
+const KECCAK256: u32 = 0x1000;
 
 /// Syscall to compute Keccak-256
 /// a0 = syscall number (0x10)

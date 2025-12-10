@@ -36,7 +36,7 @@ echo "Using objcopy: $OBJCOPY"
 echo ""
 
 # Build each example
-EXAMPLES=("fibonacci" "keccak" "sha256" "ecrecover" "memory-test")
+EXAMPLES=("fibonacci" "keccak" "sha256" "ecrecover" "memory-test" "blake2b" "json-parser" "merkle-proof" "password-hash" "ed25519-verify" "rsa-verify" "eth-header" "ripemd160" "wordle" "chess-checkmate" "range-proof" "waldo-proof" "sudoku" "age-proof" "voting" "regex-match" "hash-chain" "hello-zkvm" "nullifier" "commitment")
 
 for example in "${EXAMPLES[@]}"; do
     if [ -d "$example" ]; then

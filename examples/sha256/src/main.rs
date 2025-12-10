@@ -8,8 +8,8 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-// SHA-256 syscall number
-const SHA256: u32 = 0x11;
+// SHA-256 syscall number (matches CPU implementation)
+const SHA256: u32 = 0x1002;
 
 /// Syscall to compute SHA-256
 #[inline(always)]

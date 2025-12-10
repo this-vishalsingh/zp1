@@ -23,7 +23,7 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
     {
         unsafe {
             core::arch::asm!(
-                "li a7, 0x10",  // KECCAK256 syscall
+                "li a7, 0x1000",  // KECCAK256 syscall (CPU implementation)
                 "mv a0, {data_ptr}",
                 "mv a1, {data_len}",
                 "mv a2, {output_ptr}",
@@ -65,7 +65,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     {
         unsafe {
             core::arch::asm!(
-                "li a7, 0x11",  // SHA256 syscall
+                "li a7, 0x1002",  // SHA256 syscall (CPU implementation)
                 "mv a0, {data_ptr}",
                 "mv a1, {data_len}",
                 "mv a2, {output_ptr}",
@@ -112,7 +112,7 @@ pub fn ecrecover(hash: &[u8; 32], v: u8, r: &[u8; 32], s: &[u8; 32]) -> Option<[
         let result: u32;
         unsafe {
             core::arch::asm!(
-                "li a7, 0x20",  // ECRECOVER syscall
+                "li a7, 0x1001",  // ECRECOVER syscall (CPU implementation)
                 "mv a0, {hash_ptr}",
                 "mv a1, {v}",
                 "mv a2, {r_ptr}",
@@ -155,7 +155,7 @@ pub fn ripemd160(data: &[u8]) -> [u8; 20] {
     {
         unsafe {
             core::arch::asm!(
-                "li a7, 0x12",  // RIPEMD160 syscall
+                "li a7, 0x1003",  // RIPEMD160 syscall (CPU implementation)
                 "mv a0, {data_ptr}",
                 "mv a1, {data_len}",
                 "mv a2, {output_ptr}",
@@ -184,7 +184,7 @@ pub fn blake2b(data: &[u8]) -> [u8; 64] {
     {
         unsafe {
             core::arch::asm!(
-                "li a7, 0x13",  // BLAKE2B syscall
+                "li a7, 0x1005",  // BLAKE2B syscall (CPU implementation)
                 "mv a0, {data_ptr}",
                 "mv a1, {data_len}",
                 "mv a2, {output_ptr}",
@@ -221,7 +221,7 @@ pub fn modexp(base: &[u8; 32], exponent: &[u8; 32], modulus: &[u8; 32]) -> [u8; 
     {
         unsafe {
             core::arch::asm!(
-                "li a7, 0x21",  // MODEXP syscall
+                "li a7, 0x1004",  // MODEXP syscall (CPU implementation)
                 "mv a0, {base_ptr}",
                 "mv a1, {exp_ptr}",
                 "mv a2, {mod_ptr}",
