@@ -95,6 +95,12 @@ pub struct TraceRow {
     pub mul_lo: u32,
     /// For M-extension: high 32 bits of 64-bit intermediate.
     pub mul_hi: u32,
+    /// Shift amount (rs2 & 0x1F or imm[4:0]) for shift instructions.
+    pub shamt: u32,
+    /// Bit decomposition of rs1 for shift verification.
+    pub rs1_bits: [u8; 32],
+    /// Bit decomposition of shift result.
+    pub rd_bits: [u8; 32],
 }
 
 impl TraceRow {
@@ -112,6 +118,9 @@ impl TraceRow {
             mem_op: MemOp::None,
             mul_lo: 0,
             mul_hi: 0,
+            shamt: 0,
+            rs1_bits: [0; 32],
+            rd_bits: [0; 32],
         }
     }
 }
