@@ -536,16 +536,80 @@ impl CpuAir {
     pub fn load_byte_constraint(
         mem_value: M31,
         byte_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
-        // Extract byte based on offset (0-3)
-        // For simplicity, assume byte_offset is validated elsewhere
-        // byte = (mem_value >> (8 * byte_offset)) & 0xFF
-        // sign_extend = byte < 128 ? byte : byte | 0xFFFFFF00
+        rd_val_lo: M31,
+        rd_val_hi: M31,
+        // Witnesses
+        mem_bytes: &[M31; 4],   // Decomposition of mem_value into 4 bytes
+        offset_bits: &[M31; 2], // Decomposition of byte_offset (2 bits)
+        byte_bits: &[M31; 8],   // Decomposition of the selected byte (8 bits)
+        // Intermediate values for selections to keep degree <= 2
+        // sel_lo = (1-off0)*b0 + off0*b1
+        // sel_hi = (1-off0)*b2 + off0*b3
+        selector_intermediates: (M31, M31),
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+
+        // 1. Decompose mem_value into bytes
+        // mem_value = b0 + b1*2^8 + b2*16 + b3*24
+        let b0 = mem_bytes[0];
+        let b1 = mem_bytes[1];
+        let b2 = mem_bytes[2];
+        let b3 = mem_bytes[3];
+
+        let two_8 = M31::new(1 << 8);
+        let two_16 = M31::new(1 << 16);
+        let two_24 = M31::new(1 << 24);
+
+        let reconstruction = b0 + b1 * two_8 + b2 * two_16 + b3 * two_24;
+        constraints.push(mem_value - reconstruction);
+
+        // 2. Decompose byte_offset into 2 bits
+        // byte_offset = off0 + 2*off1
+        let off0 = offset_bits[0];
+        let off1 = offset_bits[1];
         
-        // This requires bit decomposition of the byte
-        // Placeholder: will be implemented with proper bit extraction
-        mem_value - rd_val - byte_offset + mem_value // Placeholder identity
+        // Ensure bits are binary
+        constraints.push(off0 * (off0 - M31::ONE));
+        constraints.push(off1 * (off1 - M31::ONE));
+
+        // Check offset reconstruction
+        constraints.push(byte_offset - (off0 + off1 * M31::new(2)));
+
+        // 3. Select byte using multiplexing tree (degree 2)
+        // Level 1: Select between (b0, b1) and (b2, b3) based on off0
+        // sel_lo = (1-off0)*b0 + off0*b1 = b0 + off0*(b1-b0)
+        // sel_hi = (1-off0)*b2 + off0*b3 = b2 + off0*(b3-b2)
+        let (sel_lo, sel_hi) = selector_intermediates;
+        
+        constraints.push(sel_lo - (b0 + off0 * (b1 - b0)));
+        constraints.push(sel_hi - (b2 + off0 * (b3 - b2)));
+
+        // Level 2: Select between (sel_lo, sel_hi) based on off1
+        // selected_byte = sel_lo + off1*(sel_hi - sel_lo)
+        // We also decompose selected_byte into bits to check sign and value
+        let mut byte_val = M31::ZERO;
+        let mut power = M31::ONE;
+        for &bit in byte_bits {
+             constraints.push(bit * (bit - M31::ONE)); // Binary check
+             byte_val = byte_val + bit * power;
+             power = power + power;
+        }
+
+        constraints.push(byte_val - (sel_lo + off1 * (sel_hi - sel_lo)));
+
+        // 4. Sign extension
+        // sign = byte_bits[7]
+        let sign = byte_bits[7];
+        
+        // rd_lo = byte_val + sign * 0xFF00
+        let const_ff00 = M31::new(0xFF00);
+        constraints.push(rd_val_lo - (byte_val + sign * const_ff00));
+
+        // rd_hi = sign * 0xFFFF
+        let const_ffff = M31::new(0xFFFF);
+        constraints.push(rd_val_hi - (sign * const_ffff));
+
+        constraints
     }
 
     /// Evaluate LH (Load Halfword) constraint.
@@ -2087,18 +2151,93 @@ mod tests {
     }
 
     #[test]
-    fn test_load_byte_placeholder() {
-        // Test LB placeholder (arbitrary computation for now)
-        // Current placeholder: mem_value - rd_val - byte_offset + mem_value
-        let mem_value = M31::new(0x000000FF);
-        let byte_offset = M31::ZERO;
-        let rd_val = M31::new(0xFFFFFFFF);
+    fn test_load_byte_full() {
+        // Test LB: rd = sign_extend(mem[addr][7:0])
+        // mem_value = 0x1234F678. 
+        // offset 0 -> 0x78 (positive) -> 0x00000078
+        // offset 1 -> 0xF6 (negative) -> 0xFFFFFFF6
 
-        let constraint = CpuAir::load_byte_constraint(mem_value, byte_offset, rd_val);
-        // Placeholder: 255 - 0xFFFFFFFF - 0 + 255 = 510 - 0xFFFFFFFF
-        // This is just checking the placeholder computes something
-        // Will be replaced with proper bit extraction logic
-        let _ = constraint; // Just verify it compiles
+        let mem_u32 = 0x1234F678u32;
+        let mem_value = M31::new(mem_u32);
+        
+        let mem_bytes_u32 = [
+            mem_u32 & 0xFF,
+            (mem_u32 >> 8) & 0xFF,
+            (mem_u32 >> 16) & 0xFF,
+            (mem_u32 >> 24) & 0xFF,
+        ];
+        let mem_bytes: [M31; 4] = [
+            M31::new(mem_bytes_u32[0]),
+            M31::new(mem_bytes_u32[1]),
+            M31::new(mem_bytes_u32[2]),
+            M31::new(mem_bytes_u32[3]),
+        ];
+
+        // Case 1: Load byte 0 (0x78) - Positive
+        {
+            let offset_val = 0;
+            let byte_val = mem_bytes_u32[offset_val as usize];
+            // 0x78 sign extended is 0x00000078
+            let rd_u32 = byte_val; 
+            let (rd_lo, rd_hi) = u32_to_limbs(rd_u32);
+            
+            let offset_bits = [M31::ZERO, M31::ZERO]; // 0 = 00
+            let byte_bits = u32_to_bits(byte_val)[0..8].try_into().unwrap();
+            
+            // Calculate intermediates
+            // off0=0, off1=0
+            // sel_lo = (1-0)*b0 + 0*b1 = b0 = 0x78
+            // sel_hi = (1-0)*b2 + 0*b3 = b2 = 0x34
+            let sel_lo = mem_bytes[0];
+            let sel_hi = mem_bytes[2];
+
+            let constraints = CpuAir::load_byte_constraint(
+                mem_value,
+                M31::new(offset_val),
+                rd_lo, rd_hi,
+                &mem_bytes,
+                &offset_bits,
+                &byte_bits,
+                (sel_lo, sel_hi),
+            );
+            
+            for c in constraints {
+                assert_eq!(c, M31::ZERO, "LB byte 0 failed");
+            }
+        }
+
+        // Case 2: Load byte 1 (0xF6) - Negative
+        {
+            let offset_val = 1;
+            let byte_val = mem_bytes_u32[offset_val as usize]; // 0xF6
+            // 0xF6 sign extended is 0xFFFFFFF6
+            let rd_u32 = 0xFFFFFF00 | byte_val; 
+            let (rd_lo, rd_hi) = u32_to_limbs(rd_u32);
+            
+            let offset_bits = [M31::ONE, M31::ZERO]; // 1 = 01 (off0=1, off1=0)
+            let byte_bits = u32_to_bits(byte_val)[0..8].try_into().unwrap();
+            
+            // Calculate intermediates
+            // off0=1, off1=0
+            // sel_lo = (1-1)*b0 + 1*b1 = b1 = 0xF6
+            // sel_hi = (1-1)*b2 + 1*b3 = b3 = 0x12
+            let sel_lo = mem_bytes[1];
+            let sel_hi = mem_bytes[3];
+
+            let constraints = CpuAir::load_byte_constraint(
+                mem_value,
+                M31::new(offset_val),
+                rd_lo, rd_hi,
+                &mem_bytes,
+                &offset_bits,
+                &byte_bits,
+                (sel_lo, sel_hi),
+            );
+            
+            for c in constraints {
+                assert_eq!(c, M31::ZERO, "LB byte 1 (signed) failed");
+            }
+        }
     }
 
     #[test]
