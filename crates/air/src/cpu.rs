@@ -691,10 +691,15 @@ impl CpuAir {
     /// Constraint: rd_val = mem_value
     #[inline]
     pub fn load_word_constraint(
-        mem_value: M31,
-        rd_val: M31,
-    ) -> M31 {
-        rd_val - mem_value
+        mem_val_lo: M31,
+        mem_val_hi: M31,
+        rd_val_lo: M31,
+        rd_val_hi: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        constraints.push(rd_val_lo - mem_val_lo);
+        constraints.push(rd_val_hi - mem_val_hi);
+        constraints
     }
 
     /// Evaluate LBU (Load Byte Unsigned) constraint.
@@ -2169,16 +2174,30 @@ mod tests {
     #[test]
     fn test_load_word_constraint() {
         // Test LW: rd = mem[addr]
-        let mem_value = M31::new(0x12345678);
-        let rd_val = M31::new(0x12345678);
+        // Value: 0x12345678
+        let val_u32 = 0x12345678u32;
+        let (val_lo, val_hi) = u32_to_limbs(val_u32);
+        
+        // Correct case
+        let constraints = CpuAir::load_word_constraint(val_lo, val_hi, val_lo, val_hi);
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "LW constraint failed");
+        }
 
-        let constraint = CpuAir::load_word_constraint(mem_value, rd_val);
-        assert_eq!(constraint, M31::ZERO, "LW constraint failed");
-
-        // Test with wrong value
-        let wrong_rd = M31::new(0x11111111);
-        let wrong_constraint = CpuAir::load_word_constraint(mem_value, wrong_rd);
-        assert_ne!(wrong_constraint, M31::ZERO, "LW should catch incorrect value");
+        // Incorrect case (wrong value loaded)
+        let wrong_u32 = 0x11111111u32;
+        let (wrong_lo, wrong_hi) = u32_to_limbs(wrong_u32);
+        
+        let constraints_wrong = CpuAir::load_word_constraint(val_lo, val_hi, wrong_lo, wrong_hi);
+        
+        // At least one constraint should fail
+        let mut failed = false;
+        for c in constraints_wrong {
+            if c != M31::ZERO {
+                failed = true;
+            }
+        }
+        assert!(failed, "LW should catch incorrect value");
     }
 
     #[test]
