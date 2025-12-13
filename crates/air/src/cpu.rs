@@ -1112,32 +1112,65 @@ impl CpuAir {
     }
 
     /// Evaluate MULH constraint: rd = (rs1 * rs2)[63:32] (signed * signed).
-    /// Returns the upper 32 bits of signed multiplication.
     ///
     /// # Arguments
-    /// * `rs1_lo/hi` - First operand limbs (signed interpretation)
-    /// * `rs2_lo/hi` - Second operand limbs (signed interpretation)  
-    /// * `rd_val_lo/hi` - Result limbs (upper 32 bits of 64-bit product)
-    /// * `product_lo_lo/hi` - Lower 32 bits of product (witness)
-    /// * `sign1/sign2` - Sign bits of rs1/rs2 (witnesses)
+    /// * `rs1_lo/hi` - First operand limbs
+    /// * `rs2_lo/hi` - Second operand limbs
+    /// * `rd_lo/hi` - Result limbs (High 32 bits of signed product)
+    /// * `prod_lo_lo/hi` - Low 32 bits of product (Witnesses)
+    /// * `carry_0/1` - Multiplication carries (Witnesses)
+    /// * `sign1/2` - Sign bits of rs1/rs2 (Witnesses)
+    /// * `k_overflow` - Overflow factor for modulo check (Witness)
     ///
     /// # Returns
-    /// Constraint ensuring rd = signed product high bits
+    /// Constraints ensuring rd = High(Signed(rs1) * Signed(rs2))
     pub fn mulh_constraint(
-        _rs1_lo: M31,
-        rs1_hi: M31,
-        _rs2_lo: M31,
-        rs2_hi: M31,
-        rd_val_lo: M31,
-        _rd_val_hi: M31,
-        product_lo_lo: M31,
-        _product_lo_hi: M31,
-    ) -> M31 {
-        // MULH returns upper 32 bits of signed 32x32->64 multiply
-        // Needs sign extension logic and proper 64-bit computation
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
+        rd_lo: M31, rd_hi: M31,
+        prod_lo_lo: M31, prod_lo_hi: M31,
+        // Witnesses
+        carry_0: M31, carry_1: M31,
+        sign1: M31, sign2: M31,
+        k_overflow: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base = M31::new(65536);
+
+        // 1. Verify Unsigned Multiplication Low Parts to get carry_1
+        // (We don't output these, but they are needed to compute carry_1 correctly)
+        constraints.push(rs1_lo * rs2_lo - (prod_lo_lo + carry_0 * base));
+        constraints.push(
+            (rs1_lo * rs2_hi + rs1_hi * rs2_lo + carry_0) - (prod_lo_hi + carry_1 * base)
+        );
+
+        // 2. Calculate Unsigned High Part P_hi
+        let p_hi = rs1_hi * rs2_hi + carry_1;
+
+        // 3. Verify Signed Logic
+        // SignedHi = UnsignedHi - rs1*s2 - rs2*s1  (Modulo 2^32)
+        // rd = P_hi - rs1*s2 - rs2*s1 + K*2^32
+        // rd + rs1*s2 + rs2*s1 = P_hi + K*2^32
         
-        // Placeholder helper for tests; production constraints live in rv32im.rs
-        rd_val_lo - (rs1_hi * rs2_hi) - product_lo_lo + product_lo_lo
+        let rs1 = rs1_lo + rs1_hi * base;
+        let rs2 = rs2_lo + rs2_hi * base;
+        let rd = rd_lo + rd_hi * base;
+        let base32 = base * base; // 2^32
+
+        // Correction terms
+        let lhs = rd + rs1 * sign2 + rs2 * sign1;
+        let rhs = p_hi + k_overflow * base32;
+        
+        constraints.push(lhs - rhs);
+
+        // 4. Verify signs are binary
+        constraints.push(sign1 * (sign1 - M31::ONE));
+        constraints.push(sign2 * (sign2 - M31::ONE));
+
+        // Note: We should strictly verify rs1_hi/rs2_hi match sign1/sign2 (bit 15)
+        // This requires bit decomposition of hi limbs, assumed handled by range checks or separate gadgets.
+
+        constraints
     }
 
     /// Evaluate MULHSU constraint: rd = (rs1 * rs2)[63:32] (signed * unsigned).
@@ -2990,7 +3023,32 @@ mod tests {
         let (rd_lo, rd_hi) = u32_to_limbs(product_hi); // MULH returns high 32 bits
         let (prod_lo_lo, prod_lo_hi) = u32_to_limbs(product_lo);
 
-        let constraint = CpuAir::mulh_constraint(
+        // Calculate unsigned multiplication carries
+        let t0 = (rs1_lo.as_u32() as u64) * (rs2_lo.as_u32() as u64);
+        let carry_0 = M31::new(((t0 >> 16) & 0xFFFF) as u32);
+        
+        let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
+                 (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
+                 (carry_0.as_u32() as u64);
+        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+
+        // Calculate signs
+        let sign1 = M31::new(rs1 >> 31);
+        let sign2 = M31::new(rs2 >> 31);
+
+        // Calculate overflow K
+        // P_hi (unsigned high) = rs1_hi*rs2_hi + carry_1
+        let p_hi = (rs1_hi.as_u32() as u64) * (rs2_hi.as_u32() as u64) + carry_1.as_u32() as u64;
+        
+        // Equation: rd + rs1*s2 + rs2*s1 = P_hi + K*2^32
+        let lhs = (product_hi as u64) + 
+                  (rs1 as u64) * (sign2.as_u32() as u64) + 
+                  (rs2 as u64) * (sign1.as_u32() as u64);
+        // K = (lhs - p_hi) / 2^32
+        let k = (lhs.wrapping_sub(p_hi)) >> 32;
+        let k_overflow = M31::new(k as u32);
+
+        let constraints = CpuAir::mulh_constraint(
             rs1_lo,
             rs1_hi,
             rs2_lo,
@@ -2999,10 +3057,16 @@ mod tests {
             rd_hi,
             prod_lo_lo,
             prod_lo_hi,
+            carry_0,
+            carry_1,
+            sign1,
+            sign2,
+            k_overflow,
         );
 
-        // Placeholder - verify compilation
-        let _ = constraint;
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "MULH signed failed");
+        }
     }
 
     #[test]
