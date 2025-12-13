@@ -72,35 +72,35 @@ pub enum SyscallCode {
     /// - a1: input length
     /// - a2: output pointer (32 bytes)
     /// Returns: 0 on success
-    KECCAK256 = 0x10,
+    KECCAK256 = 0x1000,
     
     /// SHA-256 hash
     /// - a0: input pointer
     /// - a1: input length
     /// - a2: output pointer (32 bytes)
     /// Returns: 0 on success
-    SHA256 = 0x11,
+    SHA256 = 0x1002,
     
     /// RIPEMD-160 hash
     /// - a0: input pointer
     /// - a1: input length
     /// - a2: output pointer (20 bytes)
     /// Returns: 0 on success
-    RIPEMD160 = 0x12,
+    RIPEMD160 = 0x1003,
     
     /// Blake2b hash (64-byte output)
     /// - a0: input pointer
     /// - a1: input length
     /// - a2: output pointer (64 bytes)
     /// Returns: 0 on success
-    BLAKE2B = 0x13,
+    BLAKE2B = 0x1005,
     
     /// Blake3 hash (32-byte output)
     /// - a0: input pointer
     /// - a1: input length
     /// - a2: output pointer (32 bytes)
     /// Returns: 0 on success
-    BLAKE3 = 0x14,
+    BLAKE3 = 0x1006,
     
     // === Ethereum Precompiles ===
     
@@ -111,7 +111,7 @@ pub enum SyscallCode {
     /// - a3: s pointer (32 bytes)
     /// - a4: output pointer (20 bytes - address)
     /// Returns: 0 on success, 1 on invalid signature
-    ECRECOVER = 0x20,
+    ECRECOVER = 0x1001,
     
     /// Modular exponentiation (for RSA, Ethereum MODEXP precompile)
     /// - a0: base pointer (32 bytes)
@@ -119,7 +119,7 @@ pub enum SyscallCode {
     /// - a2: modulus pointer (32 bytes)
     /// - a3: result pointer (32 bytes)
     /// Returns: 0 on success
-    MODEXP = 0x21,
+    MODEXP = 0x1004,
     
     // === Elliptic Curve Operations ===
     
@@ -184,13 +184,13 @@ impl SyscallCode {
             0x02 => Some(Self::READ),
             0x03 => Some(Self::COMMIT),
             0x04 => Some(Self::HINT),
-            0x10 => Some(Self::KECCAK256),
-            0x11 => Some(Self::SHA256),
-            0x12 => Some(Self::RIPEMD160),
-            0x13 => Some(Self::BLAKE2B),
-            0x14 => Some(Self::BLAKE3),
-            0x20 => Some(Self::ECRECOVER),
-            0x21 => Some(Self::MODEXP),
+            0x1000 => Some(Self::KECCAK256),
+            0x1002 => Some(Self::SHA256),
+            0x1003 => Some(Self::RIPEMD160),
+            0x1005 => Some(Self::BLAKE2B),
+            0x1006 => Some(Self::BLAKE3),
+            0x1001 => Some(Self::ECRECOVER),
+            0x1004 => Some(Self::MODEXP),
             0x30 => Some(Self::BN254_G1_ADD),
             0x31 => Some(Self::BN254_G1_MUL),
             0x32 => Some(Self::BN254_PAIRING),

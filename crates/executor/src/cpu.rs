@@ -88,6 +88,7 @@ use crate::decode::{opcode, DecodedInstr, branch_funct3, load_funct3, store_func
                     op_imm_funct3, op_funct3, system_funct3, funct7};
 use crate::error::ExecutorError;
 use crate::memory::Memory;
+use crate::syscall::SyscallCode;
 use crate::trace::{ExecutionTrace, InstrFlags, MemOp, TraceRow};
 use serde::{Deserialize, Serialize};
 
@@ -514,8 +515,8 @@ impl Cpu {
                                 let syscall_id = self.get_reg(17); // a7 register
                                 
                                 // Handle specific supported syscalls
-                                match syscall_id {
-                                    0x1000 => {
+                                match SyscallCode::from_u32(syscall_id) {
+                                    Some(SyscallCode::KECCAK256) => {
                                         // Keccak256 syscall
                                         // a0 = input pointer
                                         // a1 = input length
@@ -553,7 +554,7 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    0x1001 => {
+                                    Some(SyscallCode::ECRECOVER) => {
                                         // ECRECOVER syscall (signature recovery)
                                         // a0 = input pointer (97 bytes: hash(32) || v(1) || r(32) || s(32))
                                         // a1 = output pointer (20 bytes: address)
@@ -604,7 +605,7 @@ impl Cpu {
                                         
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    0x1002 => {
+                                    Some(SyscallCode::SHA256) => {
                                         // SHA-256 syscall
                                         // a0 = message pointer
                                         // a1 = message length
@@ -643,7 +644,7 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    0x1003 => {
+                                    Some(SyscallCode::RIPEMD160) => {
                                         // RIPEMD-160 syscall
                                         // a0 = message pointer
                                         // a1 = message length
@@ -682,7 +683,7 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    0x1004 => {
+                                    Some(SyscallCode::MODEXP) => {
                                         // MODEXP syscall (modular exponentiation for RSA/crypto)
                                         // a0 = base pointer (32 bytes)
                                         // a1 = exponent pointer (32 bytes)
@@ -751,7 +752,7 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    0x1005 => {
+                                    Some(SyscallCode::BLAKE2B) => {
                                         // Blake2b syscall (64-byte output)
                                         // a0 = message pointer
                                         // a1 = message length
@@ -790,7 +791,7 @@ impl Cpu {
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
-                                    93 => {
+                                    Some(SyscallCode::EXIT) => {
                                         // Linux exit syscall - allow this for program termination
                                         return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
                                     }
