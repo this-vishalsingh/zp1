@@ -13,19 +13,19 @@ Simple Fibonacci number calculation showing basic RISC-V execution.
 ### 2. **keccak** - Keccak-256 Hashing
 Demonstrates accelerated Keccak-256 precompile with delegation.
 - **Complexity**: Intermediate
-- **Speedup**: 100,000x vs pure RISC-V
+- **Benefit**: Compact trace representation
 - **Demonstrates**: Syscalls, delegation, cryptographic acceleration
 
 ### 3. **sha256** - SHA-256 Hashing
 Shows SHA-256 precompile performance improvements.
 - **Complexity**: Intermediate
-- **Speedup**: 40,000-100,000x
+- **Benefit**: Compact trace representation
 - **Demonstrates**: SHA-256 delegation, multiple hashes
 
 ### 4. **ecrecover** - Ethereum Signature Recovery
 Critical for Ethereum: recovers addresses from signatures.
 - **Complexity**: Advanced
-- **Speedup**: 50,000-100,000x
+- **Benefit**: Compact trace representation
 - **Demonstrates**: ECRECOVER, EIP-155 support, Ethereum integration
 
 ### 5. **memory-test** - Memory Operations

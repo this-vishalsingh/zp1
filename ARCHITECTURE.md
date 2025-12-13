@@ -31,7 +31,7 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 
 ### 4.1. The Field Choice: Mersenne-31 (M31)
 **Why?**
--   **Performance**: M31 ($2^{31}-1$) fits perfectly into a 32-bit register. Addition is a simple integer add with a conditional subtract (or bitwise AND). Multiplication fits in a 64-bit word before reduction. This makes it significantly faster than Goldilocks ($2^{64}-2^{32}+1$) or BabyBear on 32-bit/64-bit hardware.
+-   **Performance**: M31 ($2^{31}-1$) fits into a 32-bit register. Addition requires an integer add with a conditional subtract (or bitwise AND). Multiplication fits in a 64-bit word before reduction. This can be faster than Goldilocks ($2^{64}-2^{32}+1$) or BabyBear on some 32-bit/64-bit hardware.
 -   **GPU Friendly**: GPUs excel at 32-bit arithmetic. M31 is native to GPU ALUs.
 
 **Implication**:
@@ -83,4 +83,4 @@ flowchart LR
     end
 ```
 
-Using M31 allows the absolute fastest integer math on CPUs/GPUs, but breaks traditional FFTs. The **Circle STARK** construction restores the FFT ability via the geometry of the circle, giving us the "Holy Grail" of small fields + efficient FFTs.
+Using M31 provides efficient integer math on CPUs/GPUs, but breaks traditional FFTs. The **Circle STARK** construction restores FFT capability via the geometry of the circle, enabling the combination of small fields with efficient FFTs.

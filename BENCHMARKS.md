@@ -2,6 +2,16 @@
 
 Comprehensive performance benchmarks for all cryptographic precompiles in zp1.
 
+> **Important scope note**
+>
+> Most results in this document are **microbenchmarks** of:
+> - host cryptographic libraries (e.g. `tiny-keccak`, RustCrypto hashes, `secp256k1`), and/or
+> - trace-generation helpers for delegated/precompile circuits.
+>
+> They are **not** end-to-end benchmarks of “EVM → RISC-V execution → trace → prove”, and should
+> not be interpreted as such. For the Ethereum block proving demo, see `M4_BENCHMARKS.md` (it
+> explicitly notes the use of **stub traces**).
+
 ## Running Benchmarks
 
 ```bash
@@ -128,58 +138,66 @@ For a 256-byte SHA-256 hash:
 - Execution time: **< 1 microsecond**
 - **Speedup: ~100,000x**
 
-### Trace Row Comparison
+> The “speedup” figures here are **conceptual/illustrative**: the current Criterion benches do not
+> run a full “pure RISC-V SHA-256” path (see `crates/delegation/benches/crypto_bench.rs`, which
+> explicitly does not benchmark the pure RISC-V variant).
 
-| Operation    | Delegated Rows | Pure RISC-V Rows | Speedup   |
-|--------------|----------------|------------------|-----------|
-| Keccak-256   | ~100           | ~10,000,000      | 100,000x  |
-| ECRECOVER    | ~100           | ~10,000,000      | 100,000x  |
-| SHA-256      | ~80            | ~8,000,000       | 100,000x  |
-| RIPEMD-160   | ~80            | ~6,000,000       | 75,000x   |
-| MODEXP (256) | ~50            | ~5,000,000       | 100,000x  |
-| Blake2b      | ~120           | ~12,000,000      | 100,000x  |
+### Trace Row Comparison (Theoretical)
 
-## End-to-End Workflows
+> ⚠️ **Note**: These are theoretical estimates comparing delegated execution to hypothetical pure RISC-V implementations. The "speedup" numbers are extrapolations, not measured end-to-end proof generation times.
+
+| Operation    | Delegated Rows | Estimated Pure RISC-V Rows |
+|--------------|----------------|----------------------------|
+| Keccak-256   | ~100           | ~10,000,000                |
+| ECRECOVER    | ~100           | ~10,000,000                |
+| SHA-256      | ~80            | ~8,000,000                 |
+| RIPEMD-160   | ~80            | ~6,000,000                 |
+| MODEXP (256) | ~50            | ~5,000,000                 |
+| Blake2b      | ~120           | ~12,000,000                |## End-to-End Workflows
 
 ### Bitcoin Address Generation
 SHA-256(pubkey) → RIPEMD-160(hash)
 
-- **Combined Time**: ~1.2 µs (delegated)
-- **Pure RISC-V**: ~14M instructions → Minutes
-- **Speedup**: ~100,000x
+- **Delegated execution time**: ~1.2 µs
+- **Estimated pure RISC-V**: ~14M instructions
+- Note: This measures host execution speed, not proof generation time
 
 ### Ethereum Transaction Verification
 Keccak-256(tx_data) → ECRECOVER(hash, signature)
 
-- **Combined Time**: ~85-100 µs (delegated)
-- **Pure RISC-V**: ~20M instructions → Hours
-- **Speedup**: ~100,000x
+- **Delegated execution time**: ~85-100 µs
+- **Estimated pure RISC-V**: ~20M instructions
+- Note: This measures host execution speed, not proof generation time
 
 ## Memory Efficiency
 
-### Trace Size Comparison
+### Trace Size Comparison (Estimated)
 
-| Operation    | Delegated Trace | Pure RISC-V Trace | Reduction |
-|--------------|-----------------|-------------------|-----------|
-| SHA-256      | ~10 KB          | ~500 MB           | 50,000x   |
-| ECRECOVER    | ~10 KB          | ~1 GB             | 100,000x  |
-| Blake2b      | ~12 KB          | ~600 MB           | 50,000x   |
+| Operation    | Delegated Trace | Estimated Pure RISC-V Trace |
+|--------------|-----------------|-----------------------------|   
+| SHA-256      | ~10 KB          | ~500 MB                     |
+| ECRECOVER    | ~10 KB          | ~1 GB                       |
+| Blake2b      | ~12 KB          | ~600 MB                     |## Proof Generation Impact (Theoretical)
 
-## Proof Generation Impact
+> ⚠️ **Disclaimer**: These are theoretical projections. Actual end-to-end proving performance has not been measured.
 
 For a typical Ethereum transaction (Keccak + ECRECOVER):
 
-**Without Delegation:**
+**Without Delegation (estimated):**
 - Trace rows: ~20,000,000
 - Memory: ~2 GB
 - Proving time: ~2-4 hours (estimated)
 - Verifier gas: Prohibitively expensive
 
-**With Delegation:**
+**With Delegation (estimated):**
 - Trace rows: ~200
 - Memory: ~20 KB
-- Proving time: **~50-100ms**
-- Verifier gas: **Practical for on-chain verification**
+- Proving time: TBD (not yet measured)
+- Verifier gas: TBD
+
+> The proving-time and gas figures in this section are **estimates** and depend on the exact
+> end-to-end pipeline and circuits. They should not be treated as measured results for a fully
+> implemented “EVM → RISC-V” execution path.
 
 ## Cost Analysis
 
@@ -197,6 +215,8 @@ For a typical Ethereum transaction (Keccak + ECRECOVER):
 - Time per proof: ~100ms
 - **Cost per proof: $0.0000012** (1/2,000,000th)
 
+> Cost numbers are **back-of-the-envelope estimates** for intuition, not measured production costs.
+
 ### On-Chain Verification
 
 **Pure RISC-V:**
@@ -211,11 +231,11 @@ For a typical Ethereum transaction (Keccak + ECRECOVER):
 
 ## Implementation Quality
 
-All precompiles use industry-standard cryptographic libraries:
+Precompiles are built on widely used cryptographic libraries:
 
-- **Keccak-256**: `tiny-keccak` (audited, widely used)
-- **ECRECOVER**: `secp256k1` v0.29 (Bitcoin Core library)
-- **SHA-256**: `sha2` (RustCrypto, FIPS 180-4 compliant)
+- **Keccak-256**: `tiny-keccak`
+- **ECRECOVER**: `secp256k1` v0.29
+- **SHA-256**: `sha2` (RustCrypto)
 - **RIPEMD-160**: `ripemd` (RustCrypto)
 - **Blake2b**: `blake2` (RustCrypto)
 - **MODEXP**: Custom U256 implementation with rigorous testing

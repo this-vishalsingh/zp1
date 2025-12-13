@@ -10,7 +10,7 @@
 //!
 //! - Pure RISC-V: ~8,000,000 trace rows for 64-byte input
 //! - Delegated: ~80 trace rows
-//! - Speedup: ~100,000x
+//! - Benefit: Compact trace vs estimated pure RISC-V implementation
 //!
 //! # Syscall Interface
 //!

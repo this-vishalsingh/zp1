@@ -15,9 +15,9 @@ Demonstrates ZP1's accelerated SHA-256 precompile.
 
 | Implementation | Cycles | Trace Rows |
 |----------------|---------|------------|
-| Pure RISC-V | ~8,000,000 | ~8M |
+| Estimated Pure RISC-V | ~8,000,000 | ~8M |
 | Delegated | ~200 | ~80 |
-| **Speedup** | **40,000x** | **100,000x** |
+| **Reduction** | **~40,000x** | **~100,000x** |
 
 ## Building
 

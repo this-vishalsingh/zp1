@@ -10,7 +10,7 @@
 //! # Performance
 //! - Pure RISC-V: ~12M instructions for 1KB input
 //! - Delegated: ~120 trace rows
-//! - Speedup: ~100,000x
+//! - Benefit: Compact trace vs estimated pure RISC-V implementation
 
 use blake2::{Blake2b512, Digest};
 use zp1_primitives::M31;

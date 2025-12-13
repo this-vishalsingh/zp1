@@ -202,34 +202,35 @@ CircleFFT/fft/2^12      time:   [30.736 ms 30.822 ms 30.914 ms]
 
 ---
 
-## CSP Benchmark Comparison (Ethereum Block Proving)
+## CSP Benchmark Context
 
-Based on data from [ethproofs.org](https://ethproofs.org/csp-benchmarks) and public benchmarks:
+> ⚠️ **Important**: zp1's "10.58 sec" block proving time uses **stub traces** and does not represent full EVM→RISC-V execution. Direct comparison to production zkVMs is not valid.
 
-### Latency (Time to Prove)
+### Reference: Production zkVM Performance
+
+For reference, production zkVMs achieve the following on full Ethereum block proving:
 
 | zkVM | Hardware | Block Time | Status |
 |------|----------|------------|--------|
-| **SP1 Hypercube** | 16x RTX 5090 (~$100k) | **~12 sec** | Real-time |
-| **ZKsync Airbender** | 1x RTX 4090 | **~35 sec** | Near real-time |
-| **ZisK** | 1x RTX 4090 | ~45 sec | Near real-time |
-| **SP1 Turbo** | 1x RTX 4090 | ~60 sec | Production |
-| **OpenVM** | Flexible | ~90 sec | Modular |
-| **Ziren** | 1x RTX 4090 | ~120 sec | Experimental |
-| **zp1 (actual)** | **M4 Mac** | **10.58 sec** | Development |
+| SP1 Hypercube | 16x RTX 5090 (~$100k) | ~12 sec | Real-time |
+| ZKsync Airbender | 1x RTX 4090 | ~35 sec | Near real-time |
+| ZisK | 1x RTX 4090 | ~45 sec | Near real-time |
+| SP1 Turbo | 1x RTX 4090 | ~60 sec | Production |
+| OpenVM | Flexible | ~90 sec | Modular |
+| Ziren | 1x RTX 4090 | ~120 sec | Experimental |
 
-### Cost per Proof
+### Cost Estimation (Hypothetical)
 
-Estimated electricity + amortized hardware cost for 15M gas ETH block:
+> ⚠️ **Note**: These are theoretical projections assuming zp1 had full EVM execution implemented. Actual costs unknown.
 
-| zkVM | Hardware Cost | Power | Cost/Proof | Cost/Year (24/7) |
-|------|---------------|-------|------------|------------------|
-| **zp1 on M4 Mac** | $1,699 | 30W | **$0.002** | **$17.5k** |
-| Airbender (RTX 4090) | $2,000 | 450W | $0.008 | $70k |
-| SP1 Turbo (RTX 4090) | $2,000 | 450W | $0.010 | $88k |
-| SP1 Hypercube (16x 5090) | $100,000 | 7,200W | $0.012 | $105k |
+Assumed electricity + amortized hardware for 15M gas ETH block:
 
-**zp1's advantage:** 4x lower cost per proof than GPU solutions (at the expense of 4-8x slower speed).
+| zkVM | Hardware Cost | Power | Cost/Proof (est) |
+|------|---------------|-------|------------------|
+| zp1 on M4 Mac (projected) | $1,699 | 30W | TBD |
+| Airbender (RTX 4090) | $2,000 | 450W | $0.008 |
+| SP1 Turbo (RTX 4090) | $2,000 | 450W | $0.010 |
+| SP1 Hypercube (16x 5090) | $100,000 | 7,200W | $0.012 |
 
 ---
 
@@ -270,14 +271,14 @@ To reach <60s on M4 Mac:
 - SP1 Hypercube (16x RTX 5090)
 
 ### Near Real-Time (<60s)
-- ZKsync Airbender (1x RTX 4090) - **Winner for single GPU**
+- ZKsync Airbender (1x RTX 4090)
 - ZisK (1x RTX 4090)  
 - SP1 Turbo (1x RTX 4090)
 
-### Development (<5min)
+### Development
 - OpenVM (Flexible)
 - Ziren (1x RTX 4090)
-- **zp1 (M4 Mac)** - **Winner for cost efficiency**
+- zp1: Not yet benchmarked (EVM execution incomplete)
 
 ---
 

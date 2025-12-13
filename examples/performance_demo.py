@@ -48,7 +48,7 @@ def show_trace_comparison():
         print(f"{name:<15} {delegated:>10} → {riscv:>13,}  {speedup:>9,.0f}x  {use_case}")
     
     print("\n" + "="*70)
-    print("KEY INSIGHT: Delegation reduces trace complexity by 50,000-100,000x")
+    print("KEY INSIGHT: Delegation reduces trace complexity significantly (estimated)")
     print("This translates directly to faster proving times and lower costs.")
     print("="*70)
 
@@ -174,7 +174,7 @@ def main():
     print("SUMMARY")
     print("="*70)
     print("\n✓ 4 cryptographic precompiles implemented")
-    print("✓ 50,000-100,000x speedup vs pure RISC-V")
+    print("✓ Compact trace representation vs estimated pure RISC-V")
     print("✓ 487 tests passing")
     print("✓ Full Ethereum + Bitcoin support")
     print("✓ Production-ready architecture")

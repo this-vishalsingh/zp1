@@ -74,21 +74,25 @@ Circle STARK prover for RISC-V RV32IM over Mersenne31 ($p = 2^{31} - 1$).
 GPU support planned for FFT/Merkle operations.
 
 ## Implementation Status
-**Completed** (95%):
-- All RV32IM instruction constraints (47 ops) fully implemented
+
+**Core Components Implemented**:
+- RV32IM instruction constraints (47 ops)
 - Fiat-Shamir transcript with domain separators
 - Public input binding
 - RAM permutation (LogUp)
 - DEEP quotient verification
 - x0 invariant enforcement
-- Full AIR integration with trace generation
-- All constraints wired into evaluate_all()
-- End-to-end prove/verify pipeline tested
-- 407 tests passing (100% pass rate)
+- AIR integration with trace generation
+- Constraints wired into evaluate_all()
+- Basic prove/verify pipeline
+- Test coverage for components
 
-**Remaining** (5%):
+**Known Incomplete / In Progress**:
+- EVM→RISC-V guest execution (ethereum crate)
 - Full range constraints for multiply/divide witnesses
-- Complete bit decomposition for bitwise/shift operations
-- GPU optimization (CUDA backend completion)
+- Bit decomposition for bitwise/shift operations
+- GPU optimization (CUDA backend scaffolding exists)
 - Performance tuning for large traces
+- Circle FFT optimization (currently O(n²))
+- Recursion/aggregation
 - External security audit

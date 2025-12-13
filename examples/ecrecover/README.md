@@ -12,9 +12,9 @@ Recovers an Ethereum address from:
 
 | Implementation | Cycles | Trace Rows |
 |----------------|---------|------------|
-| Pure RISC-V | ~10,000,000 | ~10M |
+| Estimated Pure RISC-V | ~10,000,000 | ~10M |
 | Delegated | ~200 | ~100 |
-| **Speedup** | **50,000x** | **100,000x** |
+| **Reduction** | **~50,000x** | **~100,000x** |
 
 ## EIP-155 Support
 
