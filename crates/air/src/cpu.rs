@@ -979,25 +979,44 @@ impl CpuAir {
         ]
     }
 
+    
     /// Evaluate alignment constraint for word access.
     /// addr must be 4-byte aligned (addr % 4 == 0)
     ///
     /// # Arguments
     /// * `addr_lo` - Lower 16 bits of address
     /// * `is_word_access` - Selector (1 if word access, 0 otherwise)
+    /// * `addr_bits_0` - Least significant bit of addr_lo (Witness)
+    /// * `addr_bits_1` - Second least significant bit (Witness)
+    /// * `addr_high` - Remaining bits (addr_lo >> 2) (Witness)
     ///
     /// # Returns
-    /// Constraint: is_word_access * (addr_lo % 4) = 0
+    /// Constraints ensuring alignment if is_word_access is true.
     pub fn word_alignment_constraint(
         addr_lo: M31,
         is_word_access: M31,
-    ) -> M31 {
-        // addr_lo % 4 = addr_lo & 3
-        // Need bit decomposition to check low 2 bits are 0
-        
-        // Simplified: Check addr_lo mod 4 via auxiliary witness
-        // For now, placeholder assuming alignment is pre-checked
-        is_word_access * (addr_lo - addr_lo) // Identity
+        // Witnesses
+        addr_bits_0: M31, 
+        addr_bits_1: M31,
+        addr_high: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+
+        // 1. Verify bit decomposition of addr_lo
+        // addr_lo = b0 + 2*b1 + 4*high
+        let reconstruction = addr_bits_0 + addr_bits_1 * M31::new(2) + addr_high * M31::new(4);
+        constraints.push(addr_lo - reconstruction);
+
+        // 2. Verify bits are binary
+        constraints.push(addr_bits_0 * (addr_bits_0 - M31::ONE));
+        constraints.push(addr_bits_1 * (addr_bits_1 - M31::ONE));
+
+        // 3. Verify alignment if is_word_access is true
+        // If word access, lowest 2 bits must be 0
+        constraints.push(is_word_access * addr_bits_0);
+        constraints.push(is_word_access * addr_bits_1);
+
+        constraints
     }
 
     /// Evaluate alignment constraint for halfword access.
@@ -2483,20 +2502,50 @@ mod tests {
 
 
     #[test]
+
     fn test_word_alignment() {
-        // Test word alignment (placeholder)
-        let aligned_addr = M31::new(0x1000); // Aligned to 4
+        // Test word alignment: addr % 4 == 0
+        // Case 1: Aligned addr = 0x1000 (Binary ...1000000000000) -> Last 2 bits 00
+        let aligned_addr_val = 0x1000u32;
+        let aligned_addr = M31::new(aligned_addr_val);
         let is_word = M31::ONE;
 
-        let constraint = CpuAir::word_alignment_constraint(aligned_addr, is_word);
-        assert_eq!(constraint, M31::ZERO, "Word alignment constraint failed");
+        // Witnesses
+        let addr_bits_0 = M31::ZERO; // 0
+        let addr_bits_1 = M31::ZERO; // 0
+        let addr_high = M31::new(aligned_addr_val >> 2);
 
-        // Misaligned address (placeholder won't catch this yet)
-        let misaligned_addr = M31::new(0x1001);
-        let constraint2 = CpuAir::word_alignment_constraint(misaligned_addr, is_word);
-        // Placeholder returns 0 regardless
-        assert_eq!(constraint2, M31::ZERO, "Placeholder alignment");
+        let constraints = CpuAir::word_alignment_constraint(
+            aligned_addr,
+            is_word,
+            addr_bits_0,
+            addr_bits_1,
+            addr_high,
+        );
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "Word alignment (aligned) failed");
+        }
+
+        // Case 2: Misaligned addr = 0x1001 (Binary ...1000000000001) -> Last 2 bits 01
+        let misaligned_addr_val = 0x1001u32;
+        let misaligned_addr = M31::new(misaligned_addr_val);
+        
+        let addr_bits_0_bad = M31::ONE; // 1
+        let addr_bits_1_bad = M31::ZERO; // 0
+        let addr_high_bad = M31::new(misaligned_addr_val >> 2);
+
+        let constraints_bad = CpuAir::word_alignment_constraint(
+            misaligned_addr,
+            is_word,
+            addr_bits_0_bad,
+            addr_bits_1_bad,
+            addr_high_bad,
+        );
+        
+        // Should fail because is_word * addr_bits_0 = 1 * 1 = 1 != 0
+        assert!(constraints_bad.iter().any(|&c| c != M31::ZERO), "Word alignment should fail for 0x1001");
     }
+
 
     #[test]
     fn test_load_halfword_full() {
