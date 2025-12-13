@@ -1059,42 +1059,56 @@ impl CpuAir {
     // ============================================================================
 
     /// Evaluate MUL constraint: rd = (rs1 * rs2)[31:0].
-    /// Returns the lower 32 bits of the product.
+    /// Returns constraints verifying the full 64-bit product relation.
     ///
     /// # Arguments
-    /// * `rs1` - First operand (32 bits)
-    /// * `rs2` - Second operand (32 bits)
-    /// * `rd_val` - Result value (lower 32 bits of product)
-    /// * `product_hi` - Upper 32 bits of 64-bit product (witness)
+    /// * `rs1_lo`, `rs1_hi` - First operand limbs
+    /// * `rs2_lo`, `rs2_hi` - Second operand limbs
+    /// * `rd_lo`, `rd_hi` - Result value (lower 32 bits of product)
+    /// * `prod_hi_lo`, `prod_hi_hi` - Upper 32 bits of 64-bit product (witness)
+    /// * `carry_0` - Carry from low 16 bits (witness)
+    /// * `carry_1` - Carry from middle 32 bits (witness)
     ///
     /// # Returns
-    /// Constraint ensuring rd = (rs1 * rs2) mod 2^32
+    /// Constraints ensuring (rs1 * rs2) = rd + 2^32 * prod_hi
     ///
     /// # Algorithm
-    /// Split into 16-bit limbs: rs1 = a1*2^16 + a0, rs2 = b1*2^16 + b0
-    /// Product = a1*b1*2^32 + (a1*b0 + a0*b1)*2^16 + a0*b0
-    /// rd_val must equal low 32 bits, product_hi must equal high 32 bits
+    /// (rs1_lo + 2^16*rs1_hi) * (rs2_lo + 2^16*rs2_hi) =
+    ///     rs1_lo*rs2_lo +
+    ///     2^16*(rs1_lo*rs2_hi + rs1_hi*rs2_lo) +
+    ///     2^32*(rs1_hi*rs2_hi)
+    ///
+    /// This equals:
+    ///     rd_lo + 2^16*rd_hi + 2^32*prod_hi_lo + 2^48*prod_hi_hi
     pub fn mul_constraint(
-        rs1_lo: M31,
-        _rs1_hi: M31,
-        rs2_lo: M31,
-        _rs2_hi: M31,
-        rd_val_lo: M31,
-        _rd_val_hi: M31,
-        product_hi_lo: M31,
-        _product_hi_hi: M31,
-    ) -> M31 {
-        // For degree-2 constraints, we verify the product reconstruction
-        // Using limbs: rs1 = rs1_hi * 2^16 + rs1_lo, same for rs2
-        // Full product = (rs1_hi*2^16 + rs1_lo) * (rs2_hi*2^16 + rs2_lo)
-        //              = rs1_hi*rs2_hi*2^32 + rs1_hi*rs2_lo*2^16 + rs1_lo*rs2_hi*2^16 + rs1_lo*rs2_lo
-        
-        // We need auxiliary witnesses for intermediate products and carries
-        // For now, simplified: check that reconstruction matches
-        // Real implementation needs range checks on all limbs and carry propagation
-        
-        // Placeholder helper for tests; production constraints live in rv32im.rs
-        rd_val_lo - (rs1_lo * rs2_lo) - product_hi_lo + product_hi_lo
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
+        rd_lo: M31, rd_hi: M31,
+        prod_hi_lo: M31, prod_hi_hi: M31,
+        // Witnesses for carries
+        carry_0: M31,
+        carry_1: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base = M31::new(65536);
+
+        // 1. Low part: rs1_lo * rs2_lo = rd_lo + carry_0 * 2^16
+        // Note: Standard mult schoolbook accumulation
+        // Actually: rs1_lo * rs2_lo -> [0, 2^32)
+        // We represent result as rd_lo (16-bit) + carry_0 (approx 16-bit) * 2^16
+        constraints.push(rs1_lo * rs2_lo - (rd_lo + carry_0 * base));
+
+        // 2. Middle part: rs1_lo * rs2_hi + rs1_hi * rs2_lo + carry_0 = rd_hi + carry_1 * 2^16
+        constraints.push(
+            (rs1_lo * rs2_hi + rs1_hi * rs2_lo + carry_0) - (rd_hi + carry_1 * base)
+        );
+
+        // 3. High part: rs1_hi * rs2_hi + carry_1 = prod_hi_lo + prod_hi_hi * 2^16
+        constraints.push(
+            (rs1_hi * rs2_hi + carry_1) - (prod_hi_lo + prod_hi_hi * base)
+        );
+
+        constraints
     }
 
     /// Evaluate MULH constraint: rd = (rs1 * rs2)[63:32] (signed * signed).
@@ -2892,7 +2906,18 @@ mod tests {
         let (rd_lo, rd_hi) = u32_to_limbs(product_lo);
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs(product_hi);
 
-        let constraint = CpuAir::mul_constraint(
+        // Calculate carries
+        // rs1_lo * rs2_lo = rd_lo + carry_0 << 16
+        // rs1_lo * rs2_hi + rs1_hi * rs2_lo + carry_0 = rd_hi + carry_1 << 16
+        let t0 = (rs1_lo.as_u32() as u64) * (rs2_lo.as_u32() as u64);
+        let carry_0 = M31::new(((t0 >> 16) & 0xFFFF) as u32);
+        
+        let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
+                 (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
+                 (carry_0.as_u32() as u64);
+        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+
+        let constraints = CpuAir::mul_constraint(
             rs1_lo,
             rs1_hi,
             rs2_lo,
@@ -2901,10 +2926,13 @@ mod tests {
             rd_hi,
             prod_hi_lo,
             prod_hi_hi,
+            carry_0,
+            carry_1,
         );
 
-        // Placeholder implementation - just verify it compiles
-        assert_eq!(constraint, M31::ZERO, "MUL constraint basic test");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "MUL constraint basic test failed");
+        }
     }
 
     #[test]
@@ -2921,7 +2949,16 @@ mod tests {
         let (rd_lo, rd_hi) = u32_to_limbs(product_lo);
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs(product_hi);
 
-        let constraint = CpuAir::mul_constraint(
+        // Calculate carries
+        let t0 = (rs1_lo.as_u32() as u64) * (rs2_lo.as_u32() as u64);
+        let carry_0 = M31::new(((t0 >> 16) & 0xFFFF) as u32);
+        
+        let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
+                 (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
+                 (carry_0.as_u32() as u64);
+        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+
+        let constraints = CpuAir::mul_constraint(
             rs1_lo,
             rs1_hi,
             rs2_lo,
@@ -2930,9 +2967,13 @@ mod tests {
             rd_hi,
             prod_hi_lo,
             prod_hi_hi,
+            carry_0,
+            carry_1,
         );
 
-        assert_eq!(constraint, M31::ZERO, "MUL large numbers");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "MUL constraint large numbers failed");
+        }
     }
 
     #[test]
@@ -3144,7 +3185,19 @@ mod tests {
         let (rd_lo, rd_hi) = u32_to_limbs(wrong_lo);
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs((correct_product >> 32) as u32);
 
-        let constraint = CpuAir::mul_constraint(
+        // Calculate carries (based on INPUTS, which are valid)
+        // If the constraint holds, then inputs must match output.
+        // Here outputs (rd, prod_hi) are WRONG, so constraint must FAIL.
+        // We use the "correct" carries derived from inputs.
+        let t0 = (rs1_lo.as_u32() as u64) * (rs2_lo.as_u32() as u64);
+        let carry_0 = M31::new(((t0 >> 16) & 0xFFFF) as u32);
+        
+        let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
+                 (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
+                 (carry_0.as_u32() as u64);
+        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+
+        let constraints = CpuAir::mul_constraint(
             rs1_lo,
             rs1_hi,
             rs2_lo,
@@ -3153,10 +3206,12 @@ mod tests {
             rd_hi,
             prod_hi_lo,
             prod_hi_hi,
+            carry_0,
+            carry_1,
         );
 
-        // Placeholder won't catch this yet, but verify it compiles
-        let _ = constraint;
+        // Expect failure
+        assert!(constraints.iter().any(|&c| c != M31::ZERO), "MUL constraint should fail for wrong result");
     }
 
     #[test]
