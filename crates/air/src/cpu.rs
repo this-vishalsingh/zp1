@@ -715,13 +715,60 @@ impl CpuAir {
     pub fn load_byte_unsigned_constraint(
         mem_value: M31,
         byte_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
-        // byte = (mem_value >> (8 * byte_offset)) & 0xFF
-        // zero_extend = byte (no sign extension)
-        
-        // Placeholder
-        mem_value - rd_val - byte_offset + mem_value
+        rd_val_lo: M31,
+        rd_val_hi: M31,
+        // Witnesses
+        mem_bytes: &[M31; 4],
+        offset_bits: &[M31; 2],
+        byte_bits: &[M31; 8],   // Still needed to verify range check (0-255)
+        selector_intermediates: (M31, M31),
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+
+        // 1. Decompose mem_value into bytes
+        let b0 = mem_bytes[0];
+        let b1 = mem_bytes[1];
+        let b2 = mem_bytes[2];
+        let b3 = mem_bytes[3];
+
+        let two_8 = M31::new(1 << 8);
+        let two_16 = M31::new(1 << 16);
+        let two_24 = M31::new(1 << 24);
+
+        let reconstruction = b0 + b1 * two_8 + b2 * two_16 + b3 * two_24;
+        constraints.push(mem_value - reconstruction);
+
+        // 2. Decompose byte_offset into 2 bits
+        let off0 = offset_bits[0];
+        let off1 = offset_bits[1];
+        constraints.push(off0 * (off0 - M31::ONE));
+        constraints.push(off1 * (off1 - M31::ONE));
+        constraints.push(byte_offset - (off0 + off1 * M31::new(2)));
+
+        // 3. Select byte using multiplexing tree (degree 2)
+        let (sel_lo, sel_hi) = selector_intermediates;
+        constraints.push(sel_lo - (b0 + off0 * (b1 - b0)));
+        constraints.push(sel_hi - (b2 + off0 * (b3 - b2)));
+
+        // 4. Verify selected byte value and range using bits
+        // selected_byte = sel_lo + off1*(sel_hi - sel_lo)
+        let mut byte_val = M31::ZERO;
+        let mut power = M31::ONE;
+        for &bit in byte_bits {
+             constraints.push(bit * (bit - M31::ONE)); // Binary check
+             byte_val = byte_val + bit * power;
+             power = power + power;
+        }
+
+        constraints.push(byte_val - (sel_lo + off1 * (sel_hi - sel_lo)));
+
+        // 5. Zero extension
+        // rd_val_lo = byte_val (since byte_val < 256, it fits in 16-bit limb)
+        // rd_val_hi = 0
+        constraints.push(rd_val_lo - byte_val);
+        constraints.push(rd_val_hi); // Must be zero
+
+        constraints
     }
 
     /// Evaluate LHU (Load Halfword Unsigned) constraint.
@@ -2404,6 +2451,60 @@ mod tests {
             
             for c in constraints {
                 assert_eq!(c, M31::ZERO, "LH half 1 (positive) failed");
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_byte_unsigned_full() {
+        // Test LBU: rd = zero_extend(mem[addr][7:0])
+        // mem_value = 0x1234F678. 
+        // offset 0 -> 0x78 -> 0x00000078
+        // offset 1 -> 0xF6 -> 0x000000F6 (Zero extended, NOT signed)
+
+        let mem_u32 = 0x1234F678u32;
+        let mem_value = M31::new(mem_u32);
+        
+        let mem_bytes_u32 = [
+            mem_u32 & 0xFF,
+            (mem_u32 >> 8) & 0xFF,
+            (mem_u32 >> 16) & 0xFF,
+            (mem_u32 >> 24) & 0xFF,
+        ];
+        let mem_bytes: [M31; 4] = [
+            M31::new(mem_bytes_u32[0]),
+            M31::new(mem_bytes_u32[1]),
+            M31::new(mem_bytes_u32[2]),
+            M31::new(mem_bytes_u32[3]),
+        ];
+
+        // Case 1: Load byte 1 (0xF6) - Negative byte but Unsigned Load
+        {
+            let offset_val = 1;
+            let byte_val = mem_bytes_u32[offset_val as usize]; // 0xF6
+            // Zero extension: 0x000000F6
+            let rd_u32 = byte_val; 
+            let (rd_lo, rd_hi) = u32_to_limbs(rd_u32);
+            
+            let offset_bits = [M31::ONE, M31::ZERO]; 
+            let byte_bits = u32_to_bits(byte_val)[0..8].try_into().unwrap();
+            
+            // Calculate intermediates
+            let sel_lo = mem_bytes[1];
+            let sel_hi = mem_bytes[3];
+
+            let constraints = CpuAir::load_byte_unsigned_constraint(
+                mem_value,
+                M31::new(offset_val),
+                rd_lo, rd_hi,
+                &mem_bytes,
+                &offset_bits,
+                &byte_bits,
+                (sel_lo, sel_hi),
+            );
+            
+            for c in constraints {
+                assert_eq!(c, M31::ZERO, "LBU byte 1 (zero ext) failed");
             }
         }
     }
