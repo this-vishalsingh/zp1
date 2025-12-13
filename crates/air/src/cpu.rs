@@ -846,12 +846,64 @@ impl CpuAir {
         new_mem_value: M31,
         byte_to_store: M31,
         byte_offset: M31,
-    ) -> M31 {
-        // Mask out target byte, insert new byte
-        // new = (old & ~(0xFF << (8*offset))) | ((byte & 0xFF) << (8*offset))
+        // Witnesses
+        old_mem_bytes: &[M31; 4],
+        offset_bits: &[M31; 2],
+        witness_old_byte: M31,
+        witness_scale: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+
+        // 1. Decompose old_mem_value into bytes
+        let b0 = old_mem_bytes[0];
+        let b1 = old_mem_bytes[1];
+        let b2 = old_mem_bytes[2];
+        let b3 = old_mem_bytes[3];
+
+        let two_8 = M31::new(1 << 8);
+        let two_16 = M31::new(1 << 16);
+        let two_24 = M31::new(1 << 24);
+
+        let reconstruction = b0 + b1 * two_8 + b2 * two_16 + b3 * two_24;
+        constraints.push(old_mem_value - reconstruction);
+
+        // 2. Decompose byte_offset
+        let off0 = offset_bits[0];
+        let off1 = offset_bits[1];
+        constraints.push(off0 * (off0 - M31::ONE));
+        constraints.push(off1 * (off1 - M31::ONE));
+        constraints.push(byte_offset - (off0 + off1 * M31::new(2)));
+
+        // 3. Verify witness_old_byte matches the byte at offset in old memory
+        // Selection:
+        // sel_lo = (1-off0)b0 + off0b1
+        // sel_hi = (1-off0)b2 + off0b3
+        // selected = (1-off1)sel_lo + off1sel_hi
+        let sel_lo = b0 + off0 * (b1 - b0);
+        let sel_hi = b2 + off0 * (b3 - b2);
+        let selected_byte = sel_lo + off1 * (sel_hi - sel_lo);
         
-        // Placeholder
-        old_mem_value - new_mem_value - byte_to_store - byte_offset + old_mem_value
+        constraints.push(witness_old_byte - selected_byte);
+
+        // 4. Verify witness_scale matches 2^(8 * offset)
+        // scales = [1, 2^8, 2^16, 2^24]
+        // s0 = 1, s1 = 2^8, s2 = 2^16, s3 = 2^24
+        // scale_lo = (1-off0)*1 + off0*2^8
+        // scale_hi = (1-off0)*2^16 + off0*2^24
+        // scale = (1-off1)scale_lo + off1*scale_hi
+        let scale_lo = M31::ONE + off0 * (two_8 - M31::ONE);
+        let scale_hi = two_16 + off0 * (two_24 - two_16);
+        let selected_scale = scale_lo + off1 * (scale_hi - scale_lo);
+        
+        constraints.push(witness_scale - selected_scale);
+
+        // 5. Verify Memory Update
+        // new_mem = old_mem + (byte_to_store - old_byte) * scale
+        // This effectively replaces the old byte with the new byte at the correct position
+        let update_check = old_mem_value + (byte_to_store - witness_old_byte) * witness_scale;
+        constraints.push(new_mem_value - update_check);
+
+        constraints
     }
 
     /// Evaluate SH (Store Halfword) constraint.
@@ -2389,19 +2441,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_store_byte_placeholder() {
-        // Test SB placeholder (arbitrary computation for now)
-        let old_mem = M31::new(0x12345678);
-        let new_mem = M31::new(0x123456AB);
-        let byte_val = M31::new(0xAB);
-        let offset = M31::ZERO;
 
-        let constraint = CpuAir::store_byte_constraint(old_mem, new_mem, byte_val, offset);
-        // Placeholder does: old_mem - new_mem + byte_val - offset + old_mem
-        // Just verify it compiles for now
-        let _ = constraint;
-    }
 
     #[test]
     fn test_word_alignment() {
@@ -2543,6 +2583,60 @@ mod tests {
             for c in constraints {
                 assert_eq!(c, M31::ZERO, "LBU byte 1 (zero ext) failed");
             }
+        }
+    }
+
+    #[test]
+    fn test_store_byte_full() {
+        // Test SB: mem[addr] = rs2[7:0]
+        // Old Mem: 0x1234F678
+        // Store 0xAB at offset 1 (replaces 0xF6)
+        // New Mem: 0x1234AB78
+
+        let old_u32 = 0x1234F678u32;
+        let old_val = M31::new(old_u32);
+        
+        let new_u32 = 0x1234AB78u32;
+        let new_val = M31::new(new_u32);
+
+        let byte_to_store_val = 0xABu32;
+        let byte_to_store = M31::new(byte_to_store_val);
+        
+        // Offset 1
+        let offset_val = 1;
+        
+        // Witnesses
+        let old_bytes_u32 = [
+            old_u32 & 0xFF,
+            (old_u32 >> 8) & 0xFF,
+            (old_u32 >> 16) & 0xFF,
+            (old_u32 >> 24) & 0xFF,
+        ];
+        let old_mem_bytes: [M31; 4] = [
+            M31::new(old_bytes_u32[0]),
+            M31::new(old_bytes_u32[1]),
+            M31::new(old_bytes_u32[2]),
+            M31::new(old_bytes_u32[3]),
+        ];
+
+        let offset_bits = [M31::ONE, M31::ZERO]; // 1 = 1 + 2*0
+        
+        let witness_old_byte = old_mem_bytes[1]; // 0xF6
+        let witness_scale = M31::new(1 << 8);    // 2^8 for offset 1
+
+        let constraints = CpuAir::store_byte_constraint(
+            old_val,
+            new_val,
+            byte_to_store,
+            M31::new(offset_val),
+            &old_mem_bytes,
+            &offset_bits,
+            witness_old_byte,
+            witness_scale,
+        );
+
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "SB constraint failed");
         }
     }
 
