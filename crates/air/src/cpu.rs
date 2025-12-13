@@ -1233,23 +1233,40 @@ impl CpuAir {
     /// Evaluate MULHU constraint: rd = (rs1 * rs2)[63:32] (unsigned * unsigned).
     ///
     /// # Arguments
-    /// * Same as MUL but returns high 32 bits, both operands unsigned
+    /// * `rs1_lo/hi` - First operand limbs (Unsigned)
+    /// * `rs2_lo/hi` - Second operand limbs (Unsigned)
+    /// * `rd_lo/hi` - Result limbs (High 32 bits of Unsigned * Unsigned product)
+    /// * `prod_lo_lo/hi` - Low 32 bits of product (Witnesses)
+    /// * `carry_0/1` - Multiplication carries (Witnesses)
     ///
     /// # Returns
-    /// Constraint for unsigned high multiply
+    /// Constraints ensuring rd = High(Unsigned(rs1) * Unsigned(rs2))
     pub fn mulhu_constraint(
-        _rs1_lo: M31,
-        rs1_hi: M31,
-        _rs2_lo: M31,
-        rs2_hi: M31,
-        rd_val_lo: M31,
-        _rd_val_hi: M31,
-        product_lo_lo: M31,
-        _product_lo_hi: M31,
-    ) -> M31 {
-        // Both unsigned - simpler than signed cases
-        // Placeholder
-        rd_val_lo - (rs1_hi * rs2_hi) - product_lo_lo + product_lo_lo
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
+        rd_lo: M31, rd_hi: M31,
+        prod_lo_lo: M31, prod_lo_hi: M31,
+        // Witnesses
+        carry_0: M31, carry_1: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base = M31::new(65536);
+
+        // 1. Verify Unsigned Multiplication Low Parts to get carry_1
+        constraints.push(rs1_lo * rs2_lo - (prod_lo_lo + carry_0 * base));
+        constraints.push(
+            (rs1_lo * rs2_hi + rs1_hi * rs2_lo + carry_0) - (prod_lo_hi + carry_1 * base)
+        );
+
+        // 2. Calculate Unsigned High Part P_hi
+        let p_hi = rs1_hi * rs2_hi + carry_1;
+
+        // 3. Verify rd is the high part
+        // rd = P_hi
+        let rd = rd_lo + rd_hi * base;
+        constraints.push(rd - p_hi);
+
+        constraints
     }
 
     /// Evaluate DIV constraint: rd = rs1 / rs2 (signed division, round toward zero).
@@ -3024,7 +3041,7 @@ mod tests {
         let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
                  (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
                  (carry_0.as_u32() as u64);
-        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+        let carry_1 = M31::new((t1 >> 16) as u32);
 
         let constraints = CpuAir::mul_constraint(
             rs1_lo,
@@ -3065,7 +3082,7 @@ mod tests {
         let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
                  (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
                  (carry_0.as_u32() as u64);
-        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+        let carry_1 = M31::new((t1 >> 16) as u32);
 
         // Calculate signs
         let sign1 = M31::new(rs1 >> 31);
@@ -3129,7 +3146,7 @@ mod tests {
         let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
                  (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
                  (carry_0.as_u32() as u64);
-        let carry_1 = M31::new(((t1 >> 16) & 0xFFFF) as u32);
+        let carry_1 = M31::new((t1 >> 16) as u32);
 
         // Sign of rs1
         let sign1 = M31::new(rs1 >> 31);
@@ -3178,7 +3195,16 @@ mod tests {
         let (rd_lo, rd_hi) = u32_to_limbs(product_hi);
         let (prod_lo_lo, prod_lo_hi) = u32_to_limbs((product & 0xFFFFFFFF) as u32);
 
-        let constraint = CpuAir::mulhu_constraint(
+        // Calculate unsigned multiplication carries
+        let t0 = (rs1_lo.as_u32() as u64) * (rs2_lo.as_u32() as u64);
+        let carry_0 = M31::new(((t0 >> 16) & 0xFFFF) as u32);
+        
+        let t1 = (rs1_lo.as_u32() as u64) * (rs2_hi.as_u32() as u64) +
+                 (rs1_hi.as_u32() as u64) * (rs2_lo.as_u32() as u64) +
+                 (carry_0.as_u32() as u64);
+        let carry_1 = M31::new((t1 >> 16) as u32);
+
+        let constraints = CpuAir::mulhu_constraint(
             rs1_lo,
             rs1_hi,
             rs2_lo,
@@ -3187,9 +3213,13 @@ mod tests {
             rd_hi,
             prod_lo_lo,
             prod_lo_hi,
+            carry_0,
+            carry_1,
         );
 
-        let _ = constraint;
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "MULHU (unsigned) failed");
+        }
     }
 
     #[test]
