@@ -230,6 +230,15 @@ pub struct TraceColumns {
     pub or_result_bytes: [Vec<M31>; 4],
     /// XOR result bytes for lookup verification
     pub xor_result_bytes: [Vec<M31>; 4],
+    
+    // =========================================================================
+    // Shift instruction witnesses
+    // =========================================================================
+    
+    /// Shift amount (rs2 & 0x1F or imm[4:0])
+    pub shamt: Vec<M31>,
+    /// Bit decomposition of shift result (rd)
+    pub rd_bits: [Vec<M31>; 32],
 }
 
 impl TraceColumns {
@@ -328,6 +337,10 @@ impl TraceColumns {
             and_result_bytes: std::array::from_fn(|_| Vec::new()),
             or_result_bytes: std::array::from_fn(|_| Vec::new()),
             xor_result_bytes: std::array::from_fn(|_| Vec::new()),
+            
+            // Initialize shift witnesses
+            shamt: Vec::new(),
+            rd_bits: std::array::from_fn(|_| Vec::new()),
         }
     }
 
@@ -619,6 +632,12 @@ impl TraceColumns {
                 cols.or_result_bytes[i].push(M31::new((or_result >> shift) & 0xFF));
                 cols.xor_result_bytes[i].push(M31::new((xor_result >> shift) & 0xFF));
             }
+            
+            // Shift instruction witnesses
+            cols.shamt.push(M31::new(row.shamt));
+            for i in 0..32 {
+                cols.rd_bits[i].push(M31::new(row.rd_bits[i] as u32));
+            }
         }
 
         cols
@@ -745,6 +764,12 @@ impl TraceColumns {
             self.or_result_bytes[i].resize(target, M31::ZERO);
             self.xor_result_bytes[i].resize(target, M31::ZERO);
         }
+        
+        // Pad shift witness columns
+        self.shamt.resize(target, M31::ZERO);
+        for i in 0..32 {
+            self.rd_bits[i].resize(target, M31::ZERO);
+        }
     }
 
     /// Convert to a vector of columns for the prover.
@@ -842,6 +867,9 @@ impl TraceColumns {
         .chain(self.and_result_bytes.iter().map(|v| v.clone()))
         .chain(self.or_result_bytes.iter().map(|v| v.clone()))
         .chain(self.xor_result_bytes.iter().map(|v| v.clone()))
+        // Add shift witnesses (33 columns: 1 shamt + 32 rd_bits)
+        .chain(std::iter::once(self.shamt.clone()))
+        .chain(self.rd_bits.iter().map(|v| v.clone()))
         .collect()
     }
     

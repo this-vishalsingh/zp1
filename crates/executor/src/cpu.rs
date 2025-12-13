@@ -189,6 +189,8 @@ impl Cpu {
         let mut flags = InstrFlags::default();
         let mut mul_lo = 0u32;
         let mut mul_hi = 0u32;
+        let mut shamt = 0u32;
+        let mut is_shift = false;
 
         // Execute based on opcode
         match instr.opcode {
@@ -348,11 +350,13 @@ impl Cpu {
                     }
                     op_imm_funct3::SLLI => {
                         // SLLI: Shift Left Logical Immediate
-                        let shamt = instr.shamt();
+                        shamt = instr.shamt();
+                        is_shift = true;
                         rs1_val << shamt
                     }
                     op_imm_funct3::SRLI_SRAI => {
-                        let shamt = instr.shamt();
+                        shamt = instr.shamt();
+                        is_shift = true;
                         if instr.funct7 & 0x20 != 0 {
                             // SRAI: Shift Right Arithmetic Immediate
                             ((rs1_val as i32) >> shamt) as u32
@@ -467,7 +471,9 @@ impl Cpu {
                         }
                         (op_funct3::SLL_MULH, funct7::NORMAL) => {
                             // SLL: Shift Left Logical
-                            rs1_val << (rs2_val & 0x1F)
+                            shamt = rs2_val & 0x1F;
+                            is_shift = true;
+                            rs1_val << shamt
                         }
                         (op_funct3::SLT_MULHSU, funct7::NORMAL) => {
                             // SLT: Set Less Than (signed)
@@ -483,11 +489,15 @@ impl Cpu {
                         }
                         (op_funct3::SRL_SRA_DIVU, funct7::NORMAL) => {
                             // SRL: Shift Right Logical
-                            rs1_val >> (rs2_val & 0x1F)
+                            shamt = rs2_val & 0x1F;
+                            is_shift = true;
+                            rs1_val >> shamt
                         }
                         (op_funct3::SRL_SRA_DIVU, funct7::SUB_SRA) => {
                             // SRA: Shift Right Arithmetic
-                            ((rs1_val as i32) >> (rs2_val & 0x1F)) as u32
+                            shamt = rs2_val & 0x1F;
+                            is_shift = true;
+                            ((rs1_val as i32) >> shamt) as u32
                         }
                         (op_funct3::OR_REM, funct7::NORMAL) => {
                             // OR
@@ -859,6 +869,20 @@ impl Cpu {
         row.flags = flags;
         row.mul_lo = mul_lo;
         row.mul_hi = mul_hi;
+        row.shamt = shamt;
+        
+        // Populate shift witness bits if this is a shift instruction
+        if is_shift {
+            let rs1_val = self.regs[instr.rs1 as usize];
+            // Decompose rs1 into bits
+            for i in 0..32 {
+                row.rs1_bits[i] = ((rs1_val >> i) & 1) as u8;
+            }
+            // Decompose rd result into bits
+            for i in 0..32 {
+                row.rd_bits[i] = ((rd_val >> i) & 1) as u8;
+            }
+        }
 
         // Update CPU state
         self.pc = next_pc;
