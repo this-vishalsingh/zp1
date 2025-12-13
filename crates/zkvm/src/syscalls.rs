@@ -17,8 +17,8 @@
 /// assert_eq!(hash.len(), 32);
 /// ```
 pub fn keccak256(data: &[u8]) -> [u8; 32] {
-    let mut output = [0u8; 32];
-    
+    let output = [0u8; 32];
+
     #[cfg(target_arch = "riscv32")]
     {
         unsafe {
@@ -35,7 +35,7 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         // For testing outside zkVM, use the actual implementation
@@ -47,7 +47,7 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
             hasher.finalize(&mut output);
         }
     }
-    
+
     output
 }
 
@@ -59,8 +59,8 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
 /// # Returns
 /// 32-byte hash digest
 pub fn sha256(data: &[u8]) -> [u8; 32] {
-    let mut output = [0u8; 32];
-    
+    let output = [0u8; 32];
+
     #[cfg(target_arch = "riscv32")]
     {
         unsafe {
@@ -77,7 +77,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         // For testing outside zkVM
@@ -89,7 +89,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
             output.copy_from_slice(&hasher.finalize());
         }
     }
-    
+
     output
 }
 
@@ -106,7 +106,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// * `None` - If signature is invalid
 pub fn ecrecover(hash: &[u8; 32], v: u8, r: &[u8; 32], s: &[u8; 32]) -> Option<[u8; 20]> {
     let address = [0u8; 20];
-    
+
     #[cfg(target_arch = "riscv32")]
     {
         let result: u32;
@@ -128,14 +128,14 @@ pub fn ecrecover(hash: &[u8; 32], v: u8, r: &[u8; 32], s: &[u8; 32]) -> Option<[
                 result = out(reg) result,
             );
         }
-        
+
         if result == 0 {
             Some(address)
         } else {
             None
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         // Silence unused warnings
@@ -149,8 +149,8 @@ pub fn ecrecover(hash: &[u8; 32], v: u8, r: &[u8; 32], s: &[u8; 32]) -> Option<[
 ///
 /// Used in Bitcoin address generation.
 pub fn ripemd160(data: &[u8]) -> [u8; 20] {
-    let mut output = [0u8; 20];
-    
+    let output = [0u8; 20];
+
     #[cfg(target_arch = "riscv32")]
     {
         unsafe {
@@ -167,19 +167,26 @@ pub fn ripemd160(data: &[u8]) -> [u8; 20] {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         // Placeholder for testing
+        #[cfg(feature = "testing")]
+        {
+            use ripemd160::{Digest, Ripemd160};
+            let mut hasher = Ripemd160::new();
+            hasher.update(data);
+            output.copy_from_slice(&hasher.finalize());
+        }
     }
-    
+
     output
 }
 
 /// Compute Blake2b hash (64-byte output)
 pub fn blake2b(data: &[u8]) -> [u8; 64] {
     let output = [0u8; 64];
-    
+
     #[cfg(target_arch = "riscv32")]
     {
         unsafe {
@@ -196,7 +203,7 @@ pub fn blake2b(data: &[u8]) -> [u8; 64] {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         #[cfg(feature = "testing")]
@@ -207,16 +214,16 @@ pub fn blake2b(data: &[u8]) -> [u8; 64] {
             output.copy_from_slice(&hasher.finalize());
         }
     }
-    
+
     output
 }
 
-/// Modular exponentiation (for RSA, Ethereum MODEXP precompile)
+/// Modular exponentiation (for Ethereum MODEXP precompile)
 ///
 /// Computes base^exponent mod modulus
 pub fn modexp(base: &[u8; 32], exponent: &[u8; 32], modulus: &[u8; 32]) -> [u8; 32] {
-    let mut result = [0u8; 32];
-    
+    let result = [0u8; 32];
+
     #[cfg(target_arch = "riscv32")]
     {
         unsafe {
@@ -235,11 +242,22 @@ pub fn modexp(base: &[u8; 32], exponent: &[u8; 32], modulus: &[u8; 32]) -> [u8; 
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
-        // Placeholder for testing
+        #[cfg(feature = "testing")]
+        {
+            use num_bigint::BigUint;
+            let b = BigUint::from_bytes_be(base);
+            let e = BigUint::from_bytes_be(exponent);
+            let m = BigUint::from_bytes_be(modulus);
+            let res = b.modpow(&e, &m);
+            let bytes = res.to_bytes_be();
+            if bytes.len() <= 32 {
+                result[32 - bytes.len()..].copy_from_slice(&bytes);
+            }
+        }
     }
-    
+
     result
 }

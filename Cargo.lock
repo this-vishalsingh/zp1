@@ -3770,6 +3770,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ripemd160"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f923401a7e6614f2838037bd9bac86c003d1629446d2b5816d3159472071be4f"
+
+[[package]]
 name = "rlp"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5759,6 +5765,8 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "blake2",
+ "num-bigint",
+ "ripemd160",
  "serde",
  "sha2",
  "tiny-keccak",
