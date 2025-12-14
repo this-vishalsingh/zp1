@@ -1493,48 +1493,61 @@ impl CpuAir {
     /// # Arguments
     /// * `rs1_lo/hi` - First operand limbs
     /// * `rs2_lo/hi` - Second operand limbs
-    /// * `eq_result` - Equality check result (witness: 1 if equal, 0 otherwise)
     /// * `branch_taken` - Branch taken flag (witness)
     /// * `pc` - Current PC
     /// * `next_pc` - Next PC value
     /// * `offset` - Branch offset (sign-extended immediate)
+    /// * `is_equal_lo` - 1 if rs1_lo == rs2_lo (witness)
+    /// * `inv_diff_lo` - Inverse of (rs1_lo - rs2_lo) or 0 (witness)
+    /// * `is_equal_hi` - 1 if rs1_hi == rs2_hi (witness)
+    /// * `inv_diff_hi` - Inverse of (rs1_hi - rs2_hi) or 0 (witness)
     ///
     /// # Returns
-    /// Constraints ensuring correct branch behavior
+    /// Constraints ensuring correct equality checks and PC update
     pub fn beq_constraint(
         rs1_lo: M31,
         rs1_hi: M31,
         rs2_lo: M31,
         rs2_hi: M31,
-        eq_result: M31,
         branch_taken: M31,
         pc: M31,
         next_pc: M31,
         offset: M31,
-    ) -> M31 {
-        // Check equality: rs1 == rs2 iff (rs1_lo == rs2_lo) AND (rs1_hi == rs2_hi)
-        // eq_result = 1 iff equal
-        // branch_taken = eq_result
-        // next_pc = branch_taken ? (pc + offset) : (pc + 4)
-        
-        // Constraint 1: branch_taken = eq_result
-        let c1 = branch_taken - eq_result;
-        
-        // Constraint 2: eq_result is binary
-        let c2 = eq_result * (M31::ONE - eq_result);
-        
-        // Constraint 3: If eq_result=1, then diff must be zero
+        // Equality witnesses
+        is_equal_lo: M31,
+        inv_diff_lo: M31,
+        is_equal_hi: M31,
+        inv_diff_hi: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+
+        // 1. IsZero gadget for Low Limb Difference
         let diff_lo = rs1_lo - rs2_lo;
+        // diff * is_equal = 0
+        constraints.push(diff_lo * is_equal_lo);
+        // diff * inv = 1 - is_equal
+        constraints.push(diff_lo * inv_diff_lo - (M31::ONE - is_equal_lo));
+        // Ensure is_equal is binary (implied by above if inv correct, but safer to enforce?)
+        // Actually the IsZero gadget for x using y, inv:
+        // x*y=0 and x*inv = 1-y works.
+        // If x=0: 0=0 ok, 0=1-y => y=1.
+        // If x!=0: x*y=0 => y=0 (since field). x*inv=1 => inv=1/x.
+        // So y is forced to be 0 or 1.
+
+        // 2. IsZero gadget for High Limb Difference
         let diff_hi = rs1_hi - rs2_hi;
-        let c3 = eq_result * (diff_lo + diff_hi);
-        
-        // Constraint 4: PC update
+        constraints.push(diff_hi * is_equal_hi);
+        constraints.push(diff_hi * inv_diff_hi - (M31::ONE - is_equal_hi));
+
+        // 3. Branch condition: taken iff both equal
+        constraints.push(branch_taken - (is_equal_lo * is_equal_hi));
+
+        // 4. PC Update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
-        let c4 = next_pc - expected_pc;
-        
-        // Combine constraints (simplified - in practice would return array)
-        c1 + c2 + c3 + c4
+        constraints.push(next_pc - expected_pc);
+
+        constraints
     }
 
     /// Evaluate BNE constraint: branch if rs1 != rs2.
@@ -3709,41 +3722,65 @@ mod tests {
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let eq_result = M31::ONE; // Equal
-        let branch_taken = M31::ONE; // Branch taken
+        // Witnesses
+        let branch_taken = M31::ONE;
         let pc = M31::new(0x1000);
-        let offset = M31::new(0x100); // Branch offset
-        let next_pc = M31::new(0x1100); // pc + offset
-        
-        let constraint = CpuAir::beq_constraint(
+        let offset = M31::new(0x100);
+        let next_pc = M31::new(0x1100); 
+
+        // Equality witnesses
+        let is_equal_lo = M31::ONE;
+        let inv_diff_lo = M31::ZERO; // diff is 0, so inv is 0
+        let is_equal_hi = M31::ONE;
+        let inv_diff_hi = M31::ZERO;
+
+        let constraints = CpuAir::beq_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            eq_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            is_equal_lo, inv_diff_lo, is_equal_hi, inv_diff_hi,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BEQ taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BEQ taken constraint failed");
+        }
     }
 
     #[test]
     fn test_beq_not_taken() {
         // Test BEQ when rs1 != rs2 (branch not taken)
         let rs1 = 0x12345678u32;
-        let rs2 = 0x12345679u32; // Different
+        let rs2 = 0x12345679u32; // Different (at low limb)
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let eq_result = M31::ZERO; // Not equal
-        let branch_taken = M31::ZERO; // Branch not taken
+        // Witnesses
+        let branch_taken = M31::ZERO;
         let pc = M31::new(0x1000);
         let offset = M31::new(0x100);
         let next_pc = M31::new(0x1004); // pc + 4
-        
-        let constraint = CpuAir::beq_constraint(
+
+        // Equality witnesses
+        // lo: 0x5678 vs 0x5679 -> diff = -1
+        let diff_lo = rs1_lo - rs2_lo;
+        let is_equal_lo = M31::ZERO;
+        let inv_diff_lo = diff_lo.inv();
+
+        // hi: 0x1234 vs 0x1234 -> diff = 0
+        let is_equal_hi = M31::ONE;
+        let inv_diff_hi = M31::ZERO;
+
+        let constraints = CpuAir::beq_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            eq_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            is_equal_lo, inv_diff_lo, is_equal_hi, inv_diff_hi,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BEQ not taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BEQ not taken constraint failed");
+        }
     }
+        
+
 
     #[test]
     fn test_bne_taken() {
@@ -3917,19 +3954,30 @@ mod tests {
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        // BEQ with rs1 != rs2 but claiming equality
-        let wrong_eq = M31::ONE; // Wrong: they're not equal
+        // BEQ with rs1 != rs2 but claiming equality (is_equal = 1)
         let branch_taken = M31::ONE;
         let pc = M31::new(0x1000);
         let offset = M31::new(0x100);
-        let next_pc = M31::new(0x1100);
+        let next_pc = M31::new(0x1100); 
+
+        // Witnesses claiming equality
+        let is_equal_lo = M31::ONE; // Lie: say eq
+        let inv_diff_lo = M31::ZERO; // Irrelevant for this test, but IsZero Check 1 is diff*is_equal=0
         
-        let constraint = CpuAir::beq_constraint(
+        let is_equal_hi = M31::ONE;
+        let inv_diff_hi = M31::ZERO;
+
+        // If rs1 != rs2, then diff != 0.
+        // Constraint: diff * is_equal == 0.
+        // If we set is_equal=1, then diff * 1 != 0. Constraint fails.
+        
+        // Note: we need to handle full args
+        let constraints = CpuAir::beq_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            wrong_eq, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            is_equal_lo, inv_diff_lo, is_equal_hi, inv_diff_hi,
         );
         
-        // Should fail because eq_result doesn't match actual equality
-        assert_ne!(constraint, M31::ZERO, "Should detect incorrect eq_result");
+        assert!(constraints.iter().any(|&c| c != M31::ZERO), "Should detect incorrect is_equal witness");
     }
 }
