@@ -32,7 +32,11 @@ impl M31 {
     /// Create a new M31 element, reducing if necessary.
     #[inline]
     pub const fn new(val: u32) -> Self {
+        // Apply double reduction to handle values >= 2*P
+        // First reduction: if val >= P, subtract P
         let reduced = if val >= P { val - P } else { val };
+        // Second reduction: if still >= P, subtract P again
+        let reduced = if reduced >= P { reduced - P } else { reduced };
         Self(reduced)
     }
 
@@ -292,5 +296,53 @@ mod tests {
         assert_eq!((a + neg_a).as_u32(), 0);
 
         assert_eq!((-M31::ZERO).as_u32(), 0);
+    }
+
+    /// Proof of Concept test demonstrating the bug in M31::new()
+    /// 
+    /// This test shows that the current implementation of `new()` incorrectly
+    /// reduces values >= 2*P (values >= 2^32 - 2).
+    /// 
+    /// The issue is that `new()` only performs a single reduction step:
+    /// `if val >= P { val - P } else { val }`
+    /// 
+    /// This works for val < 2*P but fails for val >= 2*P.
+    #[test]
+    fn test_new_reduction_bug_poc() {
+        // Test Case 1: val = 2*P = 2^32 - 2
+        // Expected: 2*P mod P = 0
+        // Current: 2*P - P = P (incorrect!)
+        let val_2p = 2 * P;
+        let m1 = M31::new(val_2p);
+        println!("Test 1: M31::new(2*P = {}) = {}", val_2p, m1.as_u32());
+        println!("Expected: 0, Got: {}", m1.as_u32());
+        assert_eq!(m1.as_u32(), 0, "M31::new(2*P) should be 0");
+
+        // Test Case 2: val = u32::MAX = 2^32 - 1
+        // Expected: (2^32 - 1) mod (2^31 - 1) = 1
+        // Current: (2^32 - 1) - (2^31 - 1) = 2^31 = P + 1 (incorrect!)
+        let val_max = u32::MAX;
+        let m2 = M31::new(val_max);
+        println!("Test 2: M31::new(u32::MAX = {}) = {}", val_max, m2.as_u32());
+        println!("Expected: 1, Got: {}", m2.as_u32());
+        assert_eq!(m2.as_u32(), 1, "M31::new(u32::MAX) should be 1");
+    }
+
+    /// Additional edge case tests for M31::new()
+    #[test]
+    fn test_new_edge_cases() {
+        // Values that should work with current implementation
+        assert_eq!(M31::new(0).as_u32(), 0);
+        assert_eq!(M31::new(1).as_u32(), 1);
+        assert_eq!(M31::new(P - 1).as_u32(), P - 1);
+        assert_eq!(M31::new(P).as_u32(), 0);
+        assert_eq!(M31::new(P + 1).as_u32(), 1);
+        
+        // Boundary at 2*P - 1
+        assert_eq!(M31::new(2 * P - 1).as_u32(), P - 1);
+        
+        // Values >= 2*P now work correctly
+        assert_eq!(M31::new(2 * P).as_u32(), 0);
+        assert_eq!(M31::new(u32::MAX).as_u32(), 1);
     }
 }
