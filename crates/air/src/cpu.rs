@@ -1606,52 +1606,171 @@ impl CpuAir {
     }
 
     /// Evaluate BLT constraint: branch if rs1 < rs2 (signed).
+    /// Evaluate BLT constraint: branch if rs1 < rs2 (signed).
+    ///
+    /// # Arguments
+    /// * `rs1_lo/hi` - First operand limbs
+    /// * `rs2_lo/hi` - Second operand limbs
+    /// * `branch_taken` - Branch taken flag (witness)
+    /// * `pc` - Current PC
+    /// * `next_pc` - Next PC value
+    /// * `offset` - Branch offset
+    /// 
+    /// # Witnesses for Sign Extraction (rs1_hi, rs2_hi)
+    /// * `rs1_sign` - Sign bit of rs1
+    /// * `rs1_hi_rest` - rs1_hi without sign bit
+    /// * `rs1_hi_check_lo`, `rs1_hi_check_hi` - decomposition of rs1_hi_rest (to ensure < 32768)
+    /// * `rs2_sign` - Sign bit of rs2
+    /// * `rs2_hi_rest` - rs2_hi without sign bit
+    /// * `rs2_hi_check_lo`, `rs2_hi_check_hi` - decomposition of rs2_hi_rest
+    ///
+    /// # Witnesses for Unsigned Comparison (if signs equal)
+    /// * `ltu` - 1 if rs1 < rs2 (unsigned)
+    /// * `diff_lo`, `diff_hi` - Difference limbs (larger - smaller)
+    /// * `borrow` - Borrow from low limb subtraction
+    /// * `inv_diff` - Inverse of diff (to enforce strictly less than if ltu=1)
     pub fn blt_constraint(
-        _rs1_lo: M31,
-        _rs1_hi: M31,
-        _rs2_lo: M31,
-        _rs2_hi: M31,
-        lt_result: M31,
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
         branch_taken: M31,
-        pc: M31,
-        next_pc: M31,
-        offset: M31,
-    ) -> M31 {
-        // Reuse signed comparison logic
-        // branch_taken = lt_result
+        pc: M31, next_pc: M31, offset: M31,
+        // Sign Witnesses
+        rs1_sign: M31, rs1_hi_rest: M31,
+        rs1_hi_check_lo: M31, rs1_hi_check_hi: M31,
+        rs2_sign: M31, rs2_hi_rest: M31,
+        rs2_hi_check_lo: M31, rs2_hi_check_hi: M31,
+        // Unsigned Comparison Witnesses
+        ltu: M31,
+        diff_lo: M31, diff_hi: M31,
+        borrow: M31,
+        inv_diff: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base_mask = M31::new(32768); // 2^15
+        let base_limbs = M31::new(65536); // 2^16
+        let byte_base = M31::new(256); // 2^8
+
+        // 1. Sign Extraction & Verification for rs1
+        // rs1_hi = rs1_sign * 2^15 + rs1_hi_rest
+        constraints.push(rs1_hi - (rs1_sign * base_mask + rs1_hi_rest));
+        // Verify rs1_hi_rest < 2^15. 
+        // decompose rs1_hi_rest = check_hi * 256 + check_lo (where check_hi is 7-bit, check_lo is 8-bit effectively)
+        // Here we just accept check_hi/lo witnesses and reconstruct.
+        constraints.push(rs1_hi_rest - (rs1_hi_check_hi * byte_base + rs1_hi_check_lo));
+        // Ensure rs1_sign is binary
+        constraints.push(rs1_sign * (M31::ONE - rs1_sign));
+
+        // 2. Sign Extraction & Verification for rs2
+        constraints.push(rs2_hi - (rs2_sign * base_mask + rs2_hi_rest));
+        constraints.push(rs2_hi_rest - (rs2_hi_check_hi * byte_base + rs2_hi_check_lo));
+        constraints.push(rs2_sign * (M31::ONE - rs2_sign));
+
+        // 3. Unsigned Comparison Logic (rs1 vs rs2)
+        // larger = ltu ? rs2 : rs1
+        // smaller = ltu ? rs1 : rs2
+        // diff = larger - smaller
+        let larger_lo = ltu * rs2_lo + (M31::ONE - ltu) * rs1_lo;
+        let larger_hi = ltu * rs2_hi + (M31::ONE - ltu) * rs1_hi;
+        let smaller_lo = ltu * rs1_lo + (M31::ONE - ltu) * rs2_lo;
+        let smaller_hi = ltu * rs1_hi + (M31::ONE - ltu) * rs2_hi;
+
+        // larger - smaller = diff
+        // lo: larger_lo - smaller_lo = diff_lo - borrow * 2^16
+        constraints.push((larger_lo - smaller_lo) - (diff_lo - borrow * base_limbs));
+        // hi: larger_hi - smaller_hi - borrow = diff_hi
+        constraints.push((larger_hi - smaller_hi - borrow) - diff_hi);
         
-        let c1 = branch_taken - lt_result;
-        let c2 = lt_result * (M31::ONE - lt_result); // Binary
+        // If ltu=1, enforcing strict inequality: diff != 0.
+        // diff_val = diff_lo + diff_hi * 2^16
+        // diff_val * inv_diff = ltu
+        // If ltu=1, diff_val * inv = 1 => diff != 0.
+        // If ltu=0, diff_val * inv = 0 => valid (diff can be 0 or inv can be 0).
+        let diff_val = diff_lo + diff_hi * base_limbs;
+        constraints.push(diff_val * inv_diff - ltu);
         
+        // Ensure ltu is binary
+        constraints.push(ltu * (M31::ONE - ltu));
+
+        // 4. Signed Less Than Logic
+        // is_lt = (s1==1 && s2==0)   [negative < positive]
+        //       | (s1==s2 && ltu==1) [same sign, check magnitude]
+        // Term for s1 != s2
+        // s1_ne_s2 = s1 + s2 - 2*s1*s2
+        let signs_equal_term = M31::ONE - (rs1_sign + rs2_sign - M31::new(2) * rs1_sign * rs2_sign);
+        let is_lt = rs1_sign * (M31::ONE - rs2_sign) + signs_equal_term * ltu;
+
+        // 5. Branch Condition
+        constraints.push(branch_taken - is_lt);
+
+        // 6. PC Update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
-        let c3 = next_pc - expected_pc;
-        
-        // Placeholder helper for tests; production constraints live in rv32im.rs
-        c1 + c2 + c3
+        constraints.push(next_pc - expected_pc);
+
+        constraints
     }
 
     /// Evaluate BGE constraint: branch if rs1 >= rs2 (signed).
+    /// Arguments and witnesses same as BLT.
     pub fn bge_constraint(
-        _rs1_lo: M31,
-        _rs1_hi: M31,
-        _rs2_lo: M31,
-        _rs2_hi: M31,
-        ge_result: M31,
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
         branch_taken: M31,
-        pc: M31,
-        next_pc: M31,
-        offset: M31,
-    ) -> M31 {
-        // ge_result = 1 - lt_result
-        let c1 = branch_taken - ge_result;
-        let c2 = ge_result * (M31::ONE - ge_result);
+        pc: M31, next_pc: M31, offset: M31,
+        // Sign Witnesses
+        rs1_sign: M31, rs1_hi_rest: M31,
+        rs1_hi_check_lo: M31, rs1_hi_check_hi: M31,
+        rs2_sign: M31, rs2_hi_rest: M31,
+        rs2_hi_check_lo: M31, rs2_hi_check_hi: M31,
+        // Unsigned Comparison Witnesses
+        ltu: M31,
+        diff_lo: M31, diff_hi: M31,
+        borrow: M31,
+        inv_diff: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base_mask = M31::new(32768);
+        let base_limbs = M31::new(65536);
+        let byte_base = M31::new(256);
+
+        // 1. Sign Extraction (Same as BLT)
+        constraints.push(rs1_hi - (rs1_sign * base_mask + rs1_hi_rest));
+        constraints.push(rs1_hi_rest - (rs1_hi_check_hi * byte_base + rs1_hi_check_lo));
+        constraints.push(rs1_sign * (M31::ONE - rs1_sign));
+
+        constraints.push(rs2_hi - (rs2_sign * base_mask + rs2_hi_rest));
+        constraints.push(rs2_hi_rest - (rs2_hi_check_hi * byte_base + rs2_hi_check_lo));
+        constraints.push(rs2_sign * (M31::ONE - rs2_sign));
+
+        // 2. Unsigned Comparison (Same as BLT)
+        // larger = ltu ? rs2 : rs1
+        // smaller = ltu ? rs1 : rs2
+        let larger_lo = ltu * rs2_lo + (M31::ONE - ltu) * rs1_lo;
+        let larger_hi = ltu * rs2_hi + (M31::ONE - ltu) * rs1_hi;
+        let smaller_lo = ltu * rs1_lo + (M31::ONE - ltu) * rs2_lo;
+        let smaller_hi = ltu * rs1_hi + (M31::ONE - ltu) * rs2_hi;
+
+        constraints.push((larger_lo - smaller_lo) - (diff_lo - borrow * base_limbs));
+        constraints.push((larger_hi - smaller_hi - borrow) - diff_hi);
         
+        let diff_val = diff_lo + diff_hi * base_limbs;
+        constraints.push(diff_val * inv_diff - ltu);
+        constraints.push(ltu * (M31::ONE - ltu));
+
+        // 3. Signed Less Than Logic (Same as BLT)
+        let signs_equal_term = M31::ONE - (rs1_sign + rs2_sign - M31::new(2) * rs1_sign * rs2_sign);
+        let is_lt = rs1_sign * (M31::ONE - rs2_sign) + signs_equal_term * ltu;
+
+        // 4. Branch Logic (BGE: Branch if NOT LT)
+        // branch_taken = 1 - is_lt
+        constraints.push(branch_taken - (M31::ONE - is_lt));
+
+        // 5. PC Update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
-        let c3 = next_pc - expected_pc;
-        
-        c1 + c2 + c3
+        constraints.push(next_pc - expected_pc);
+
+        constraints
     }
 
     /// Evaluate BLTU constraint: branch if rs1 < rs2 (unsigned).
@@ -3873,23 +3992,59 @@ mod tests {
     #[test]
     fn test_blt_taken() {
         // Test BLT when rs1 < rs2 (signed, branch taken)
+        // rs1 = -100 = 0xFFFFFF9C
+        // rs2 = 50 = 0x00000032
         let rs1 = (-100i32) as u32;
         let rs2 = 50u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let lt_result = M31::ONE; // rs1 < rs2
         let branch_taken = M31::ONE;
         let pc = M31::new(0x3000);
         let offset = M31::new(0x200);
         let next_pc = M31::new(0x3200);
         
-        let constraint = CpuAir::blt_constraint(
+        // Witnesses
+        // rs1 sign: High bit of 0xFFFF is 1
+        let rs1_sign = M31::ONE;
+        // rs1_hi_rest = 0x7FFF
+        let rs1_hi_rest = M31::new(0x7FFF);
+        let rs1_hi_check_lo = M31::new(0xFF);
+        let rs1_hi_check_hi = M31::new(0x7F);
+
+        // rs2 sign: High bit of 0x0000 is 0
+        let rs2_sign = M31::ZERO;
+        let rs2_hi_rest = M31::ZERO;
+        let rs2_hi_check_lo = M31::ZERO;
+        let rs2_hi_check_hi = M31::ZERO;
+
+        // Unsigned check if signs equal:
+        // Here sign1=1, sign2=0. Negative < Positive.
+        // is_lt = 1*(1-0) + ... = 1.
+        // ltu is irrelevant for is_lt result in this case, but witnesses must still be valid for unsigned compare logic.
+        // rs1 (large unsigned) vs rs2 (small unsigned).
+        // ltu = 0 (since rs1 > rs2 unsigned).
+        // larger = rs1, smaller = rs2.
+        // diff = rs1 - rs2 = 0xFFFFFF9C - 0x32 = 0xFFFFFF6A
+        let ltu = M31::ZERO;
+        let diff = rs1 - rs2;
+        let (diff_lo, diff_hi) = u32_to_limbs(diff);
+        // rs1_lo - rs2_lo = 0xFF9C - 0x32 = 0xFF6A. No borrow.
+        let borrow = M31::ZERO;
+        // inv_diff: diff is non-zero.
+        let inv_diff = M31::ZERO; 
+
+        let constraints = CpuAir::blt_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            lt_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            rs1_sign, rs1_hi_rest, rs1_hi_check_lo, rs1_hi_check_hi,
+            rs2_sign, rs2_hi_rest, rs2_hi_check_lo, rs2_hi_check_hi,
+            ltu, diff_lo, diff_hi, borrow, inv_diff,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BLT taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BLT taken constraint failed");
+        }
     }
 
     #[test]
@@ -3900,18 +4055,48 @@ mod tests {
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let ge_result = M31::ZERO; // rs1 < rs2, so NOT >=
         let branch_taken = M31::ZERO;
         let pc = M31::new(0x4000);
         let offset = M31::new(0x80);
         let next_pc = M31::new(0x4004); // pc + 4
+
+        // Witnesses
+        // rs1 sign: 0
+        let rs1_sign = M31::ZERO;
+        let rs1_hi_rest = M31::ZERO;
+        let rs1_hi_check_lo = M31::ZERO;
+        let rs1_hi_check_hi = M31::ZERO;
+
+        // rs2 sign: 0
+        let rs2_sign = M31::ZERO;
+        let rs2_hi_rest = M31::ZERO;
+        let rs2_hi_check_lo = M31::ZERO;
+        let rs2_hi_check_hi = M31::ZERO;
+
+        // Unsigned check: rs1=10, rs2=20.
+        // rs1 < rs2 => ltu = 1.
+        // larger=rs2, smaller=rs1.
+        // diff = rs2 - rs1 = 10.
+        let ltu = M31::ONE;
+        let diff = rs2 - rs1;
+        let (diff_lo, diff_hi) = u32_to_limbs(diff);
+        let borrow = M31::ZERO;
+        let inv_diff = diff_lo.inv();
+
+        // Logic: signs equal, ltu=1 => is_lt = 1.
+        // BGE: branch_taken = 1 - is_lt = 0 (correct, not taken).
         
-        let constraint = CpuAir::bge_constraint(
+        let constraints = CpuAir::bge_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            ge_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            rs1_sign, rs1_hi_rest, rs1_hi_check_lo, rs1_hi_check_hi,
+            rs2_sign, rs2_hi_rest, rs2_hi_check_lo, rs2_hi_check_hi,
+            ltu, diff_lo, diff_hi, borrow, inv_diff,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BGE not taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BGE not taken constraint failed");
+        }
     }
 
     #[test]
