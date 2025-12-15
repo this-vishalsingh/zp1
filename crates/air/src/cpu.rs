@@ -1773,51 +1773,104 @@ impl CpuAir {
         constraints
     }
 
-    /// Evaluate BLTU constraint: branch if rs1 < rs2 (unsigned).
+    /// Evaluate BLTU constraint: branch if rs1 < rs2 (unsigned)
+    /// # Arguments
+    /// * `rs1_lo/hi` - First operand limbs
+    /// * `rs2_lo/hi` - Second operand limbs
+    /// * `branch_taken` - Branch taken flag (witness)
+    /// * `pc` - Current PC
+    /// * `next_pc` - Next PC value
+    /// * `offset` - Branch offset
+    ///
+    /// # Witnesses for Unsigned Comparison
+    /// * `ltu` - 1 if rs1 < rs2 (unsigned)
+    /// * `diff_lo`, `diff_hi` - Difference limbs (larger - smaller)
+    /// * `borrow` - Borrow from low limb subtraction
+    /// * `inv_diff` - Inverse of diff
     pub fn bltu_constraint(
-        _rs1_lo: M31,
-        _rs1_hi: M31,
-        _rs2_lo: M31,
-        _rs2_hi: M31,
-        ltu_result: M31,
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
         branch_taken: M31,
-        pc: M31,
-        next_pc: M31,
-        offset: M31,
-    ) -> M31 {
-        // Use unsigned comparison (borrow detection)
-        let c1 = branch_taken - ltu_result;
-        let c2 = ltu_result * (M31::ONE - ltu_result);
+        pc: M31, next_pc: M31, offset: M31,
+        // Unsigned Comparison Witnesses
+        ltu: M31,
+        diff_lo: M31, diff_hi: M31,
+        borrow: M31,
+        inv_diff: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base_limbs = M31::new(65536);
+
+        // 1. Unsigned Comparison Logic (rs1 vs rs2)
+        // larger = ltu ? rs2 : rs1
+        // smaller = ltu ? rs1 : rs2
+        let larger_lo = ltu * rs2_lo + (M31::ONE - ltu) * rs1_lo;
+        let larger_hi = ltu * rs2_hi + (M31::ONE - ltu) * rs1_hi;
+        let smaller_lo = ltu * rs1_lo + (M31::ONE - ltu) * rs2_lo;
+        let smaller_hi = ltu * rs1_hi + (M31::ONE - ltu) * rs2_hi;
+
+        // larger - smaller = diff
+        // lo: larger_lo - smaller_lo = diff_lo - borrow * 2^16
+        constraints.push((larger_lo - smaller_lo) - (diff_lo - borrow * base_limbs));
+        // hi: larger_hi - smaller_hi - borrow = diff_hi
+        constraints.push((larger_hi - smaller_hi - borrow) - diff_hi);
         
+        // If ltu=1, enforcing strict inequality: diff != 0.
+        let diff_val = diff_lo + diff_hi * base_limbs;
+        constraints.push(diff_val * inv_diff - ltu);
+        
+        // Ensure ltu is binary
+        constraints.push(ltu * (M31::ONE - ltu));
+
+        // 2. Branch Condition
+        constraints.push(branch_taken - ltu);
+
+        // 3. PC Update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
-        let c3 = next_pc - expected_pc;
-        
-        c1 + c2 + c3
+        constraints.push(next_pc - expected_pc);
+
+        constraints
     }
 
     /// Evaluate BGEU constraint: branch if rs1 >= rs2 (unsigned).
+    /// Arguments and witnesses same as BLTU.
     pub fn bgeu_constraint(
-        _rs1_lo: M31,
-        _rs1_hi: M31,
-        _rs2_lo: M31,
-        _rs2_hi: M31,
-        lt_result: M31,
+        rs1_lo: M31, rs1_hi: M31,
+        rs2_lo: M31, rs2_hi: M31,
         branch_taken: M31,
-        pc: M31,
-        next_pc: M31,
-        offset: M31,
-    ) -> M31 {
-        // geu_result = 1 - ltu_result
-        let geu_result = M31::ONE - lt_result;
-        let c1 = branch_taken - geu_result;
-        let c2 = geu_result * (M31::ONE - geu_result);
+        pc: M31, next_pc: M31, offset: M31,
+        // Unsigned Comparison Witnesses
+        ltu: M31,
+        diff_lo: M31, diff_hi: M31,
+        borrow: M31,
+        inv_diff: M31,
+    ) -> Vec<M31> {
+        let mut constraints = Vec::new();
+        let base_limbs = M31::new(65536);
+
+        // 1. Unsigned Comparison Logic (Same as BLTU)
+        let larger_lo = ltu * rs2_lo + (M31::ONE - ltu) * rs1_lo;
+        let larger_hi = ltu * rs2_hi + (M31::ONE - ltu) * rs1_hi;
+        let smaller_lo = ltu * rs1_lo + (M31::ONE - ltu) * rs2_lo;
+        let smaller_hi = ltu * rs1_hi + (M31::ONE - ltu) * rs2_hi;
+
+        constraints.push((larger_lo - smaller_lo) - (diff_lo - borrow * base_limbs));
+        constraints.push((larger_hi - smaller_hi - borrow) - diff_hi);
         
+        let diff_val = diff_lo + diff_hi * base_limbs;
+        constraints.push(diff_val * inv_diff - ltu);
+        constraints.push(ltu * (M31::ONE - ltu));
+
+        // 2. Branch Condition (BGEU: Branch if NOT LT)
+        constraints.push(branch_taken - (M31::ONE - ltu));
+
+        // 3. PC Update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
-        let c3 = next_pc - expected_pc;
-        
-        c1 + c2 + c3
+        constraints.push(next_pc - expected_pc);
+
+        constraints
     }
 
     /// Evaluate JAL constraint: unconditional jump with link.
@@ -4107,40 +4160,63 @@ mod tests {
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let ltu_result = M31::ONE; // 5 < 100 (unsigned)
         let branch_taken = M31::ONE;
         let pc = M31::new(0x5000);
         let offset = M31::new(0x40);
         let next_pc = M31::new(0x5040);
         
-        let constraint = CpuAir::bltu_constraint(
+        // Witnesses
+        // rs1 < rs2 => ltu = 1
+        let ltu = M31::ONE;
+        // larger=100, smaller=5
+        // diff = 95
+        let diff_lo = M31::new(95);
+        let diff_hi = M31::ZERO;
+        let borrow = M31::ZERO;
+        let inv_diff = diff_lo.inv(); // diff!=0
+
+        let constraints = CpuAir::bltu_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            ltu_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            ltu, diff_lo, diff_hi, borrow, inv_diff,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BLTU taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BLTU taken constraint failed");
+        }
     }
 
     #[test]
     fn test_bgeu_taken() {
         // Test BGEU (unsigned, branch taken when equal)
-        let rs1 = 0xFFFFu32;
-        let rs2 = 0xFFFFu32;
+        let rs1 = 50u32;
+        let rs2 = 50u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
         
-        let lt_result = M31::ZERO; // Equal, so not less-than (geu = 1 - 0 = 1)
         let branch_taken = M31::ONE;
         let pc = M31::new(0x6000);
         let offset = M31::new(0x10);
         let next_pc = M31::new(0x6010);
         
-        let constraint = CpuAir::bgeu_constraint(
+        // Witnesses
+        // rs1 == rs2 => ltu = 0
+        let ltu = M31::ZERO;
+        // diff = 0
+        let diff_lo = M31::ZERO;
+        let diff_hi = M31::ZERO;
+        let borrow = M31::ZERO;
+        let inv_diff = M31::ZERO; // irrelevant since ltu=0
+
+        let constraints = CpuAir::bgeu_constraint(
             rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            lt_result, branch_taken, pc, next_pc, offset,
+            branch_taken, pc, next_pc, offset,
+            ltu, diff_lo, diff_hi, borrow, inv_diff,
         );
         
-        assert_eq!(constraint, M31::ZERO, "BGEU taken constraint failed");
+        for c in constraints {
+            assert_eq!(c, M31::ZERO, "BGEU taken constraint failed");
+        }
     }
 
     #[test]
