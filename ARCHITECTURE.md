@@ -38,7 +38,23 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 -   Conventional FFTs require domains of size $2^n$. M31 is a Mersenne prime, so $M31 - 1$ is not highly divisible by 2. We cannot use standard FFTs efficiently.
 -   **Solution**: **Circle FFT**. We work over the circle group $x^2 + y^2 = 1$ in M31. This group has size $2^{31}$, allowing efficient FFTs of any power-of-two size.
 
-### 4.2. Lookup Arguments: LogUp vs. Lasso
+### 4.2. Degree-2 Constraint System: 77 Columns for Full RV32IM
+**Achievement**: Complete RISC-V 32IM implementation in only **77 trace columns** with **39 degree-2 constraints**.
+
+**Key Design Principles**:
+-   **Limb Decomposition**: 32-bit values split into 16-bit limbs for efficient range checking
+-   **Witness Columns**: Convert degree-3+ operations to degree-2 by pre-computing intermediates
+-   **One-hot Selectors**: 45 instruction flags enable clean constraint activation
+-   **Lookup Tables**: LogUp arguments reduce bitwise operation complexity
+
+**Performance Impact**:
+-   Degree-2 constraints enable 8x-16x blowup (vs 32x+ for degree-3+)
+-   77 columns = minimal trace size = faster proving
+-   Parallelizable constraint evaluation across all 39 constraints
+
+📖 **See [Constraint System Documentation](docs/CONSTRAINT_SYSTEM.md)** for complete details on all 77 columns and 39 constraints.
+
+### 4.3. Lookup Arguments: LogUp
 **Current State**: The system uses `LogUp`.
 **Constraint Logic**:
 -   Instead of proving every bitwise operation (AND, XOR) with expensive polynomial equations (e.g., $a \cdot (1-a) = 0$ for 32 bits), we use **Lookup Tables**.
@@ -46,7 +62,7 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 -   **LogUp** converts this lookup check into a sum of rational functions: $\sum \frac{1}{x - t_i} = \sum \frac{m_i}{x - T_i}$.
 -   **Optimization**: This dramatically reduces degree of constraints for bitwise operations, which are dominant in SHA-256 and Keccak.
 
-### 4.3. Precompiles & Acceleration
+### 4.4. Precompiles & Acceleration
 **Design Goal**: syscalls for heavy crypto.
 -   Instead of running SHA-256 as 10,000 RISC-V instructions, the VM traps the execution.
 -   The **Executor** computes the hash natively.

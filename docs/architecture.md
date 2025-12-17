@@ -21,23 +21,24 @@ Circle STARK prover for RISC-V RV32IM over Mersenne31 ($p = 2^{31} - 1$).
 
 ## Components
 - **Executor** (`zp1-executor`): Deterministic RV32IM emulator, no MMU
-- **AIR** (`zp1-air`): Constraint functions for all 47 RV32IM instructions
+- **AIR** (`zp1-air`): Constraint functions for 45 RV32IM computational instructions
 - **Prover** (`zp1-prover`): STARK with FRI, Merkle commitments, Fiat-Shamir transcript
 - **Verifier**: Base + recursive proof verification
 - **Delegation**: BLAKE2s/BLAKE3 circuits, U256 bigint ops (future)
 
 ## CPU AIR
-**State per step**: 77 columns
+**State per step**: 77 columns (see [Constraint System](CONSTRAINT_SYSTEM.md) for detailed breakdown)
+
 - Control: clk, pc, next_pc, instr, opcode
 - Registers: rd, rs1, rs2 indices
 - Immediates: imm_lo, imm_hi (16-bit limbs)
 - Register values: rd_val, rs1_val, rs2_val (hi/lo limbs each)
-- Instruction selectors: 46 one-hot flags (is_add, is_sub, is_beq, etc.)
+- Instruction selectors: 45 one-hot flags (is_add, is_sub, is_beq, etc.)
 - Memory: mem_addr (hi/lo), mem_val (hi/lo)
 - Witnesses: carry, borrow, quotient (hi/lo), remainder (hi/lo), sb_carry
 - Comparisons: lt_result, eq_result, branch_taken
 
-**Constraints** (40+ functions, 100% implemented):
+**Constraints** (39 degree-2 polynomials, 100% implemented):
 - **Basic**: x0 = 0 enforcement, PC increment
 - **Arithmetic**: ADD, SUB (with carry/borrow tracking)
 - **Bitwise**: AND, OR, XOR (lookup-table based)
@@ -75,7 +76,7 @@ GPU support planned for FFT/Merkle operations.
 
 ## Implementation Status
 **Completed** (95%):
-- All RV32IM instruction constraints (47 ops) fully implemented
+- All RV32IM instruction constraints (45 computational ops) fully implemented
 - Fiat-Shamir transcript with domain separators
 - Public input binding
 - RAM permutation (LogUp)

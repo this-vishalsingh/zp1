@@ -4,6 +4,9 @@
 //! structured column format suitable for STARK proving. The trace uses
 //! 77 columns organized for efficient constraint evaluation.
 //!
+//! 📖 **For detailed documentation** on the constraint system and column organization,
+//! see [`docs/CONSTRAINT_SYSTEM.md`](../../../docs/CONSTRAINT_SYSTEM.md).
+//!
 //! # Column Organization
 //!
 //! The trace is organized into groups:
@@ -26,7 +29,7 @@
 //! - `rs1_val_lo/hi`: Source register 1 value (read)
 //! - `rs2_val_lo/hi`: Source register 2 value (read)
 //!
-//! ## Instruction Selectors (46 columns)
+//! ## Instruction Selectors (45 columns)
 //! One-hot encoded flags for each instruction type:
 //! - R-type: `is_add`, `is_sub`, `is_and`, `is_or`, `is_xor`, etc.
 //! - I-type: `is_addi`, `is_andi`, `is_ori`, `is_xori`, etc.
