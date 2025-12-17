@@ -33,7 +33,7 @@ ELF Binary → Executor → Trace → Prover → Proof
 
 ## Features
 
-- ✅ **RV32IM ISA**: All 47 base + multiply/divide instructions
+- ✅ **RV32IM ISA**: 45 computational instructions (base + M-extension)
 - ✅ **Circle STARKs**: Mersenne31 field with QM31 extension
 - ✅ **FRI**: Fast Reed-Solomon IOP with DEEP-ALI
 - ✅ **Memory**: LogUp permutation argument

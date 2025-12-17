@@ -1,6 +1,6 @@
 //! Complete RISC-V RV32IM AIR constraints.
 //!
-//! This module provides degree-2 polynomial constraints for all 47 RV32IM instructions
+//! This module provides degree-2 polynomial constraints for 45 RV32IM computational instructions
 //! over the Mersenne-31 field. All constraints are implemented and test-covered;
 //! range checks rely on witness correctness and can be tightened further with
 //! lookup-based range tables in the prover.

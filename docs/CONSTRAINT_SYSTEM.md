@@ -8,7 +8,8 @@ ZP1 achieves a complete RISC-V RV32IM implementation using only **77 trace colum
 
 ### Trace Column Efficiency
 - **77 columns** capture the complete state of a full RISC-V 32-bit processor with multiply/divide extensions
-- Covers all **47 RV32IM instructions** (base + M-extension)
+- Covers **45 RV32IM instructions** with explicit selectors (37 RV32I base + 8 M-extension)
+- System instructions (ECALL, EBREAK, FENCE) handled via syscall mechanism, not as separate selectors
 - Each column represents one piece of state per execution step
 - Smaller trace = faster proving, less memory, cheaper verification
 
@@ -140,6 +141,15 @@ Auxiliary values that help maintain degree-2 constraints:
 | `lt_result` | Less-than comparison | 0 or 1 |
 | `eq_result` | Equality comparison | 0 or 1 |
 | `branch_taken` | Branch decision | 0 or 1 |
+
+### Note on System Instructions
+
+**ECALL, EBREAK, FENCE** are part of the RV32I specification but do not have dedicated selector columns in this implementation. Instead:
+- **ECALL**: Triggers syscall mechanism for precompile circuits (Keccak, SHA256, etc.)
+- **EBREAK**: Debug breakpoint, handled at executor level
+- **FENCE**: Memory ordering, not required in deterministic single-threaded execution
+
+This design choice keeps the trace compact while still supporting the full RV32IM computational model. The implementation covers **45 instructions** with explicit selectors representing the full computational ISA.
 
 ## The 39 Degree-2 Constraints
 
