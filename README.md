@@ -29,6 +29,8 @@ ELF Binary → Executor → Trace → Prover → Proof
 
 **Stack**: Mersenne31 → Circle STARKs → FRI → DEEP-ALI
 
+> 💡 **77 columns with degree-2 constraints** - See [Constraint System](docs/CONSTRAINT_SYSTEM.md) for details on how we achieve full RV32IM with only 77 trace columns and 39 degree-2 polynomial constraints.
+
 ## Features
 
 - ✅ **RV32IM ISA**: All 47 base + multiply/divide instructions
@@ -41,6 +43,7 @@ ELF Binary → Executor → Trace → Prover → Proof
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) - System design
+- [Constraint System](docs/CONSTRAINT_SYSTEM.md) - **77 columns, degree-2 constraints explained**
 - [User Guide](docs/USER_GUIDE.md) - How to use ZP1
 - [Examples](examples/) - Sample programs
 - [Contributing](CONTRIBUTING.md) - Development guide
