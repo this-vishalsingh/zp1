@@ -33,7 +33,7 @@ Circle STARK prover for RISC-V RV32IM over Mersenne31 ($p = 2^{31} - 1$).
 - Registers: rd, rs1, rs2 indices
 - Immediates: imm_lo, imm_hi (16-bit limbs)
 - Register values: rd_val, rs1_val, rs2_val (hi/lo limbs each)
-- Instruction selectors: 46 one-hot flags (is_add, is_sub, is_beq, etc.)
+- Instruction selectors: 45 one-hot flags (is_add, is_sub, is_beq, etc.)
 - Memory: mem_addr (hi/lo), mem_val (hi/lo)
 - Witnesses: carry, borrow, quotient (hi/lo), remainder (hi/lo), sb_carry
 - Comparisons: lt_result, eq_result, branch_taken

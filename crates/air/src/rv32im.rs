@@ -12,7 +12,7 @@
 //! - **Registers** (3): rd, rs1, rs2 indices
 //! - **Immediates** (2): imm_lo, imm_hi (16-bit limbs)
 //! - **Register values** (6): rd_val, rs1_val, rs2_val (hi/lo limbs each)
-//! - **Instruction selectors** (46): One-hot encoded instruction flags
+//! - **Instruction selectors** (45): One-hot encoded instruction flags
 //! - **Memory** (4): mem_addr (hi/lo), mem_val (hi/lo)
 //! - **Witnesses** (9): carry, borrow, quotient, remainder, sb_carry (for overflow)
 //! - **Comparisons** (3): lt_result, eq_result, branch_taken
@@ -183,7 +183,7 @@ impl Rv32imAir {
 /// - **Program Counter**: `pc`, `next_pc` for control flow
 /// - **Registers**: `rd`, `rs1`, `rs2` indices and their values (hi/lo limbs)
 /// - **Immediate**: `imm` (reconstructed from hi/lo in from_slice)
-/// - **Selectors**: 46 one-hot instruction flags (`is_add`, `is_sub`, etc.)
+/// - **Selectors**: 45 one-hot instruction flags (`is_add`, `is_sub`, etc.)
 /// - **Memory**: `mem_addr`, `mem_val` for load/store operations
 /// - **Witnesses**: `carry`, `borrow`, `quotient`, `remainder` for arithmetic
 /// - **Comparisons**: `lt_result`, `eq_result`, `branch_taken` for conditions

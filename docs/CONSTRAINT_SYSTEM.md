@@ -71,7 +71,7 @@ Each 32-bit register value is split into 16-bit limbs for efficient range checki
 - Degree-2 reconstruction: `value = lo + (hi << 16)`
 - Carry/overflow detection stays in degree-2
 
-### Instruction Selectors (46 columns)
+### Instruction Selectors (45 columns)
 One-hot encoded flags indicating which instruction is executing:
 
 **R-type Arithmetic (10)**:
@@ -100,9 +100,6 @@ One-hot encoded flags indicating which instruction is executing:
 **M-Extension (8)**:
 - `is_mul`, `is_mulh`, `is_mulhsu`, `is_mulhu`
 - `is_div`, `is_divu`, `is_rem`, `is_remu`
-
-**System (1)**:
-- `is_ecall`
 
 **Why one-hot encoding?**
 - Enables degree-2 constraint activation: `selector * constraint = 0`

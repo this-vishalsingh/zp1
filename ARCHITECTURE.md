@@ -44,7 +44,7 @@ The data flow moves from a high-level Rust program to a verifiable cryptographic
 **Key Design Principles**:
 -   **Limb Decomposition**: 32-bit values split into 16-bit limbs for efficient range checking
 -   **Witness Columns**: Convert degree-3+ operations to degree-2 by pre-computing intermediates
--   **One-hot Selectors**: 46 instruction flags enable clean constraint activation
+-   **One-hot Selectors**: 45 instruction flags enable clean constraint activation
 -   **Lookup Tables**: LogUp arguments reduce bitwise operation complexity
 
 **Performance Impact**:
