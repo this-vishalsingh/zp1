@@ -1,23 +1,23 @@
 //! Transaction execution and proving.
 
-use serde::{Serialize, Deserialize};
 use ethers::types::H256;
+use serde::{Deserialize, Serialize};
 
 /// Result of executing a transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionResult {
     /// Transaction hash
     pub hash: H256,
-    
+
     /// Gas used
     pub gas_used: u64,
-    
+
     /// Success status
     pub success: bool,
-    
+
     /// Return data
     pub return_data: Vec<u8>,
-    
+
     /// State changes (simplified)
     pub state_changes: Vec<StateChange>,
 }
@@ -36,14 +36,14 @@ pub struct StateChange {
 pub struct TransactionProof {
     /// Transaction hash
     pub tx_hash: H256,
-    
+
     /// STARK proof (serialized as bytes)
     #[serde(with = "serde_bytes")]
     pub proof: Vec<u8>,
-    
+
     /// Public inputs (state root before/after, etc.)
     pub public_inputs: Vec<u8>,
-    
+
     /// Execution result
     pub result: TransactionResult,
 }

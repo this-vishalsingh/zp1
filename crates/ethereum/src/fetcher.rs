@@ -1,11 +1,11 @@
 //! Block and transaction fetcher for Ethereum.
 
+use crate::{EthereumError, Result};
 use ethers::{
-    providers::{Provider, Http, Middleware},
+    providers::{Http, Middleware, Provider},
     types::{Block, Transaction, H256, U64},
 };
-use serde::{Serialize, Deserialize};
-use crate::{Result, EthereumError};
+use serde::{Deserialize, Serialize};
 
 /// Ethereum block fetcher with state access.
 pub struct BlockFetcher {
@@ -19,7 +19,7 @@ impl BlockFetcher {
             .map_err(|e| EthereumError::BlockFetchError(format!("Invalid RPC URL: {}", e)))?;
         Ok(Self { provider })
     }
-    
+
     /// Get the RPC provider reference.
     pub fn provider(&self) -> &Provider<Http> {
         &self.provider
@@ -27,12 +27,13 @@ impl BlockFetcher {
 
     /// Fetch a block by number with all transactions.
     pub async fn fetch_block(&self, block_number: u64) -> Result<BlockData> {
-        let block = self.provider
+        let block = self
+            .provider
             .get_block_with_txs(block_number)
             .await?
-            .ok_or_else(|| EthereumError::BlockFetchError(
-                format!("Block {} not found", block_number)
-            ))?;
+            .ok_or_else(|| {
+                EthereumError::BlockFetchError(format!("Block {} not found", block_number))
+            })?;
 
         Ok(BlockData::from_ethers_block(block))
     }
@@ -58,37 +59,69 @@ impl BlockFetcher {
         self.provider
             .get_transaction(tx_hash)
             .await?
-            .ok_or_else(|| EthereumError::BlockFetchError(
-                format!("Transaction {:?} not found", tx_hash)
-            ))
+            .ok_or_else(|| {
+                EthereumError::BlockFetchError(format!("Transaction {:?} not found", tx_hash))
+            })
     }
-    
+
     // =========================================================================
     // ACCOUNT STATE FETCHING
     // =========================================================================
-    
+
     /// Fetch account balance at a specific block.
-    pub async fn get_balance(&self, address: ethers::types::Address, block: Option<u64>) -> Result<ethers::types::U256> {
-        let block_id = block.map(|b| ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b))));
+    pub async fn get_balance(
+        &self,
+        address: ethers::types::Address,
+        block: Option<u64>,
+    ) -> Result<ethers::types::U256> {
+        let block_id = block.map(|b| {
+            ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b)))
+        });
         Ok(self.provider.get_balance(address, block_id).await?)
     }
-    
+
     /// Fetch account nonce at a specific block.
-    pub async fn get_nonce(&self, address: ethers::types::Address, block: Option<u64>) -> Result<u64> {
-        let block_id = block.map(|b| ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b))));
-        Ok(self.provider.get_transaction_count(address, block_id).await?.as_u64())
+    pub async fn get_nonce(
+        &self,
+        address: ethers::types::Address,
+        block: Option<u64>,
+    ) -> Result<u64> {
+        let block_id = block.map(|b| {
+            ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b)))
+        });
+        Ok(self
+            .provider
+            .get_transaction_count(address, block_id)
+            .await?
+            .as_u64())
     }
-    
+
     /// Fetch contract code at a specific block.
-    pub async fn get_code(&self, address: ethers::types::Address, block: Option<u64>) -> Result<Vec<u8>> {
-        let block_id = block.map(|b| ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b))));
+    pub async fn get_code(
+        &self,
+        address: ethers::types::Address,
+        block: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        let block_id = block.map(|b| {
+            ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b)))
+        });
         Ok(self.provider.get_code(address, block_id).await?.to_vec())
     }
-    
+
     /// Fetch storage slot value at a specific block.
-    pub async fn get_storage_at(&self, address: ethers::types::Address, slot: H256, block: Option<u64>) -> Result<H256> {
-        let block_id = block.map(|b| ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b))));
-        Ok(self.provider.get_storage_at(address, slot, block_id).await?)
+    pub async fn get_storage_at(
+        &self,
+        address: ethers::types::Address,
+        slot: H256,
+        block: Option<u64>,
+    ) -> Result<H256> {
+        let block_id = block.map(|b| {
+            ethers::types::BlockId::Number(ethers::types::BlockNumber::Number(U64::from(b)))
+        });
+        Ok(self
+            .provider
+            .get_storage_at(address, slot, block_id)
+            .await?)
     }
 }
 
@@ -113,7 +146,9 @@ impl BlockData {
             timestamp: block.timestamp.as_u64(),
             gas_limit: block.gas_limit.as_u64(),
             gas_used: block.gas_used.as_u64(),
-            transactions: block.transactions.into_iter()
+            transactions: block
+                .transactions
+                .into_iter()
                 .map(TransactionData::from_ethers_tx)
                 .collect(),
         }
@@ -158,11 +193,9 @@ mod tests {
         let fetcher = BlockFetcher::new("http://localhost:8545")
             .await
             .expect("Failed to create fetcher");
-        
-        let block = fetcher.fetch_block(1)
-            .await
-            .expect("Failed to fetch block");
-        
+
+        let block = fetcher.fetch_block(1).await.expect("Failed to fetch block");
+
         assert_eq!(block.number, 1);
     }
 }

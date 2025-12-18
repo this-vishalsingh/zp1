@@ -41,20 +41,20 @@
 //! }
 //! ```
 
-pub mod fetcher;
-pub mod prover;
-pub mod transaction;
 pub mod aggregation;
 pub mod config;
 pub mod evm;
+pub mod fetcher;
 pub mod guest_executor;
+pub mod prover;
 pub mod rpc_db;
+pub mod transaction;
 
-pub use fetcher::{BlockFetcher, BlockData};
+pub use aggregation::{BlockProof, ProofAggregator};
+pub use config::ProverConfig;
+pub use fetcher::{BlockData, BlockFetcher};
 pub use prover::{BlockProver, TransactionProver};
 pub use transaction::{TransactionProof, TransactionResult};
-pub use aggregation::{ProofAggregator, BlockProof};
-pub use config::ProverConfig;
 
 use thiserror::Error;
 
@@ -62,22 +62,22 @@ use thiserror::Error;
 pub enum EthereumError {
     #[error("Failed to fetch block: {0}")]
     BlockFetchError(String),
-    
+
     #[error("Failed to execute transaction: {0}")]
     ExecutionError(String),
-    
+
     #[error("Failed to generate proof: {0}")]
     ProvingError(String),
-    
+
     #[error("Failed to aggregate proofs: {0}")]
     AggregationError(String),
-    
+
     #[error("RPC error: {0}")]
     RpcError(#[from] ethers::providers::ProviderError),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }

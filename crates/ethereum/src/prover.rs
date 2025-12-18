@@ -4,15 +4,15 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::{info, warn};
 
-use zp1_prover::{StarkProver, StarkConfig};
 use zp1_executor::Cpu;
+use zp1_prover::{StarkConfig, StarkProver};
 use zp1_trace::TraceColumns;
 
-use crate::{
-    BlockFetcher, BlockData, TransactionProof, TransactionResult,
-    ProofAggregator, BlockProof, ProverConfig, Result, EthereumError,
-};
 use crate::fetcher::TransactionData;
+use crate::{
+    BlockData, BlockFetcher, BlockProof, EthereumError, ProofAggregator, ProverConfig, Result,
+    TransactionProof, TransactionResult,
+};
 
 /// Transaction prover - proves individual transactions.
 pub struct TransactionProver {
@@ -41,13 +41,13 @@ impl TransactionProver {
 
         // Step 1: Execute transaction
         let result = self.execute_transaction(tx).await?;
-        
+
         // Step 2: Generate RISC-V trace (stub)
         let trace = self.generate_trace(tx, &result)?;
-        
+
         // Step 3: Generate STARK proof
         let proof_bytes = self.generate_stark_proof(&trace)?;
-        
+
         Ok(TransactionProof {
             tx_hash: tx.hash,
             proof: proof_bytes,
@@ -63,34 +63,40 @@ impl TransactionProver {
     }
 
     /// Generate RISC-V execution trace (stub).
-    /// 
+    ///
     /// TODO: Convert EVM execution to RISC-V trace  
     /// For now, create minimal valid trace with 16 rows for testing.
-    fn generate_trace(&self, _tx: &TransactionData, _result: &TransactionResult) -> Result<TraceColumns> {
+    fn generate_trace(
+        &self,
+        _tx: &TransactionData,
+        _result: &TransactionResult,
+    ) -> Result<TraceColumns> {
         use zp1_primitives::M31;
-        
+
         // Create a minimal valid trace with 16 rows
         let num_rows = 16;
         let mut columns = TraceColumns::new();
-        
+
         // Initialize all columns with dummy values to create a valid trace
         for i in 0..num_rows {
             // Control flow columns
             columns.clk.push(M31::new(i as u32));
             columns.pc.push(M31::new(0x1000 + (i as u32) * 4));
-            columns.next_pc.push(M31::new(0x1000 + ((i + 1) as u32) * 4));
+            columns
+                .next_pc
+                .push(M31::new(0x1000 + ((i + 1) as u32) * 4));
             columns.instr.push(M31::new(0x00000013)); // NOP (addi x0, x0, 0)
             columns.opcode.push(M31::new(0x13)); // I-type opcode
-            
+
             // Register indices
             columns.rd.push(M31::ZERO);
             columns.rs1.push(M31::ZERO);
             columns.rs2.push(M31::ZERO);
-            
+
             // Immediate
             columns.imm_lo.push(M31::ZERO);
             columns.imm_hi.push(M31::ZERO);
-            
+
             // Register values
             columns.rd_val_lo.push(M31::ZERO);
             columns.rd_val_hi.push(M31::ZERO);
@@ -98,7 +104,7 @@ impl TransactionProver {
             columns.rs1_val_hi.push(M31::ZERO);
             columns.rs2_val_lo.push(M31::ZERO);
             columns.rs2_val_hi.push(M31::ZERO);
-            
+
             // Instruction flags - all zeros for NOP
             columns.is_add.push(M31::ZERO);
             columns.is_sub.push(M31::ZERO);
@@ -145,14 +151,14 @@ impl TransactionProver {
             columns.is_sb.push(M31::ZERO);
             columns.is_sh.push(M31::ZERO);
             columns.is_sw.push(M31::ZERO);
-            
+
             // Memory
             columns.mem_addr_lo.push(M31::ZERO);
             columns.mem_addr_hi.push(M31::ZERO);
             columns.mem_val_lo.push(M31::ZERO);
             columns.mem_val_hi.push(M31::ZERO);
             columns.sb_carry.push(M31::ZERO);
-            
+
             // Arithmetic intermediates
             columns.mul_lo.push(M31::ZERO);
             columns.mul_hi.push(M31::ZERO);
@@ -165,7 +171,7 @@ impl TransactionProver {
             columns.lt_result.push(M31::ZERO);
             columns.eq_result.push(M31::ZERO);
             columns.branch_taken.push(M31::ZERO);
-            
+
             // Bit decompositions (32 bits each)
             for j in 0..32 {
                 columns.rs1_bits[j].push(M31::ZERO);
@@ -175,7 +181,7 @@ impl TransactionProver {
                 columns.xor_bits[j].push(M31::ZERO);
                 columns.or_bits[j].push(M31::ZERO);
             }
-            
+
             // Byte decompositions (4 bytes each)
             for j in 0..4 {
                 columns.rs1_bytes[j].push(M31::ZERO);
@@ -185,7 +191,7 @@ impl TransactionProver {
                 columns.xor_result_bytes[j].push(M31::ZERO);
             }
         }
-        
+
         Ok(columns)
     }
 
@@ -248,24 +254,29 @@ impl BlockProver {
 
         // Fetch block data
         let block = self.fetcher.fetch_block(block_number).await?;
-        info!("Fetched block {} with {} transactions", block.number, block.transactions.len());
+        info!(
+            "Fetched block {} with {} transactions",
+            block.number,
+            block.transactions.len()
+        );
 
         // Prove all transactions
         let mut tx_proofs = Vec::new();
         for (idx, tx) in block.transactions.iter().enumerate() {
-            info!("Proving transaction {}/{}", idx + 1, block.transactions.len());
+            info!(
+                "Proving transaction {}/{}",
+                idx + 1,
+                block.transactions.len()
+            );
             let proof = self.tx_prover.prove_transaction(tx).await?;
             tx_proofs.push(proof);
         }
 
         // Aggregate into block proof
         info!("Aggregating {} transaction proofs", tx_proofs.len());
-        let block_proof = self.aggregator.aggregate(
-            block.number,
-            block.hash,
-            block.parent_hash,
-            tx_proofs,
-        )?;
+        let block_proof =
+            self.aggregator
+                .aggregate(block.number, block.hash, block.parent_hash, tx_proofs)?;
 
         // Save proof to disk
         self.save_block_proof(&block_proof).await?;
@@ -277,13 +288,13 @@ impl BlockProver {
     /// Prove a range of blocks.
     pub async fn prove_block_range(&mut self, from: u64, to: u64) -> Result<Vec<BlockProof>> {
         info!("Proving blocks {} to {}", from, to);
-        
+
         let mut proofs = Vec::new();
         for block_num in from..=to {
             let proof = self.prove_block(block_num).await?;
             proofs.push(proof);
         }
-        
+
         Ok(proofs)
     }
 
@@ -323,7 +334,7 @@ mod tests {
     async fn test_prove_block() {
         let config = ProverConfig::local();
         let mut prover = BlockProver::new(config).await.unwrap();
-        
+
         // This will fail without a local node, but tests the structure
         let result = prover.prove_block(1).await;
         assert!(result.is_ok() || result.is_err()); // Just check it compiles

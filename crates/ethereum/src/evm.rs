@@ -1,3 +1,6 @@
+use crate::fetcher::TransactionData;
+use crate::transaction::TransactionResult;
+use ethers::types::{Address as EthersAddress, H256 as EthersH256, U256 as EthersU256};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{
@@ -6,9 +9,6 @@ use revm::{
     },
     EVM,
 };
-use ethers::types::{Address as EthersAddress, H256 as EthersH256, U256 as EthersU256};
-use crate::fetcher::TransactionData;
-use crate::transaction::TransactionResult;
 
 /// Convert Ethers Address to Revm Address
 fn to_revm_address(addr: EthersAddress) -> RevmAddress {
@@ -27,7 +27,7 @@ pub fn execute_tx(tx: &TransactionData) -> anyhow::Result<TransactionResult> {
     // Initialize EVM with empty DB
     // In a real scenario, we would load state from a provider or disk
     let mut db = CacheDB::new(EmptyDB::default());
-    
+
     // Calculate required balance: gas_limit * gas_price + value + buffer
     // For EIP-1559, gas_price might be max_fee_per_gas which can be very high
     let gas_cost = if let Some(price) = tx.gas_price {
@@ -38,7 +38,7 @@ pub fn execute_tx(tx: &TransactionData) -> anyhow::Result<TransactionResult> {
     let tx_value = to_revm_u256(tx.value);
     // Add extra buffer (100 ETH) to ensure no balance issues
     let required_balance = gas_cost + tx_value + RevmU256::from(100_000_000_000_000_000_000u128);
-    
+
     // Setup sender account with sufficient balance to pay for gas + value
     let sender = to_revm_address(tx.from);
     let sender_info = AccountInfo {
@@ -72,24 +72,25 @@ pub fn execute_tx(tx: &TransactionData) -> anyhow::Result<TransactionResult> {
 
     // Process result
     let (success, return_data, gas_used) = match result {
-        ExecutionResult::Success { output, gas_used, .. } => {
+        ExecutionResult::Success {
+            output, gas_used, ..
+        } => {
             let data = match output {
                 Output::Call(bytes) => bytes.to_vec(),
                 Output::Create(bytes, _) => bytes.to_vec(),
             };
             (true, data, gas_used)
         }
-        ExecutionResult::Revert { output, gas_used } => {
-            (false, output.to_vec(), gas_used)
-        }
-        ExecutionResult::Halt { reason: _, gas_used } => {
-            (false, vec![], gas_used)
-        }
+        ExecutionResult::Revert { output, gas_used } => (false, output.to_vec(), gas_used),
+        ExecutionResult::Halt {
+            reason: _,
+            gas_used,
+        } => (false, vec![], gas_used),
     };
 
     // Collect state changes (simplified)
     // In a real implementation, we would inspect the State returned by transact()
-    // But transact_commit() consumes it. 
+    // But transact_commit() consumes it.
     // For now, we'll return an empty list of state changes as we are using EmptyDB
     let state_changes = Vec::new();
 
@@ -103,7 +104,7 @@ pub fn execute_tx(tx: &TransactionData) -> anyhow::Result<TransactionResult> {
 }
 
 /// Execute a transaction using Revm with RPC-backed state.
-/// 
+///
 /// This fetches real account balances, nonces, and contract code from the RPC.
 pub fn execute_tx_with_rpc(
     tx: &TransactionData,
@@ -112,19 +113,19 @@ pub fn execute_tx_with_rpc(
 ) -> anyhow::Result<TransactionResult> {
     use crate::rpc_db::RpcDb;
     use revm::db::CacheDB;
-    
+
     // Create RPC-backed database
     let rpc_db = RpcDb::from_rpc_url(rpc_url, block_number)
         .map_err(|e| anyhow::anyhow!("RPC DB error: {}", e))?;
-    
+
     // Wrap in CacheDB for better performance
     let mut db = CacheDB::new(rpc_db);
-    
+
     // For contract calls, we also need to ensure the sender has enough balance
     // The RPC will fetch the real balance, but we might need to override it
     // for simulation purposes
     let sender = to_revm_address(tx.from);
-    
+
     // Calculate required balance for this tx
     let gas_cost = if let Some(price) = tx.gas_price {
         to_revm_u256(price) * RevmU256::from(tx.gas)
@@ -133,7 +134,7 @@ pub fn execute_tx_with_rpc(
     };
     let tx_value = to_revm_u256(tx.value);
     let required = gas_cost + tx_value;
-    
+
     // Insert sender with sufficient balance if needed
     // This is a simulation - we assume sender can pay
     let sender_info = AccountInfo {
@@ -143,7 +144,7 @@ pub fn execute_tx_with_rpc(
         code: None,
     };
     db.insert_account_info(sender, sender_info);
-    
+
     let mut evm = EVM::new();
     evm.database(db);
 
@@ -166,19 +167,20 @@ pub fn execute_tx_with_rpc(
 
     // Process result
     let (success, return_data, gas_used) = match result {
-        ExecutionResult::Success { output, gas_used, .. } => {
+        ExecutionResult::Success {
+            output, gas_used, ..
+        } => {
             let data = match output {
                 Output::Call(bytes) => bytes.to_vec(),
                 Output::Create(bytes, _) => bytes.to_vec(),
             };
             (true, data, gas_used)
         }
-        ExecutionResult::Revert { output, gas_used } => {
-            (false, output.to_vec(), gas_used)
-        }
-        ExecutionResult::Halt { reason: _, gas_used } => {
-            (false, vec![], gas_used)
-        }
+        ExecutionResult::Revert { output, gas_used } => (false, output.to_vec(), gas_used),
+        ExecutionResult::Halt {
+            reason: _,
+            gas_used,
+        } => (false, vec![], gas_used),
     };
 
     let state_changes = Vec::new();
@@ -215,7 +217,7 @@ mod tests {
         };
 
         let result = execute_tx(&tx).expect("Execution failed");
-        
+
         assert!(result.success);
         assert_eq!(result.gas_used, 21000);
     }

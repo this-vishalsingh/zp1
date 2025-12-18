@@ -7,17 +7,15 @@ use crate::transaction::TransactionResult;
 use anyhow::Result;
 
 /// Execute a transaction by running the guest program inside the zkVM.
-/// 
+///
 /// This is the industry-standard approach used by SP1, Risc0, and OpenVM:
 /// - The guest program (containing revm) runs INSIDE the zkVM
 /// - The host prepares transaction data and provides it to the guest
 /// - The guest executes the transaction and produces provable output
 /// - The zkVM generates a proof of the guest's execution
-pub async fn execute_tx_in_guest(
-    _tx: &TransactionData,
-) -> Result<TransactionResult> {
+pub async fn execute_tx_in_guest(_tx: &TransactionData) -> Result<TransactionResult> {
     // TODO: Full implementation when guest compilation is set up
-    // 
+    //
     // Steps:
     // 1. Load the guest ELF binary:
     //    const GUEST_ELF: &[u8] = include_bytes!("../guest/target/riscv32im-zp1-zkvm-elf/release/zp1-ethereum-guest");
@@ -49,12 +47,12 @@ pub async fn execute_tx_in_guest(
     //        return_data: guest_output.return_data,
     //        state_changes: vec![],
     //    })
-    
+
     unimplemented!("Guest execution will be implemented once guest build system is integrated")
 }
 
 /// Builder for guest program compilation.
-/// 
+///
 /// This will integrate with the zp1 build system to:
 /// - Compile the guest Rust code to RISC-V
 /// - Generate the guest ELF binary
@@ -69,7 +67,7 @@ impl GuestBuilder {
             guest_path: std::path::PathBuf::from("crates/ethereum/guest"),
         }
     }
-    
+
     /// Build the guest program to RISC-V ELF.
     pub fn build(&self) -> Result<Vec<u8>> {
         // TODO: Integrate with cargo-zp1 or build.rs

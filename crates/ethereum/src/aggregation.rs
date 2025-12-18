@@ -1,31 +1,31 @@
 //! Proof aggregation for combining transaction proofs into block proofs.
 
-use serde::{Serialize, Deserialize};
+use crate::{EthereumError, Result, TransactionProof};
 use ethers::types::H256;
-use crate::{TransactionProof, Result, EthereumError};
+use serde::{Deserialize, Serialize};
 
 /// Aggregated proof for an entire block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockProof {
     /// Block number
     pub block_number: u64,
-    
+
     /// Block hash
     pub block_hash: H256,
-    
+
     /// Parent block hash
     pub parent_hash: H256,
-    
+
     /// Transaction proofs (or aggregated proof)
     pub transaction_proofs: Vec<TransactionProof>,
-    
+
     /// Aggregated STARK proof (if using recursion, serialized)
     #[serde(with = "serde_bytes")]
     pub aggregated_proof: Option<Vec<u8>>,
-    
+
     /// Merkle root of transaction proofs
     pub proof_merkle_root: [u8; 32],
-    
+
     /// Total gas used
     pub total_gas_used: u64,
 }
@@ -77,9 +77,7 @@ impl ProofAggregator {
         tx_proofs: Vec<TransactionProof>,
     ) -> Result<BlockProof> {
         // Calculate total gas
-        let total_gas_used: u64 = tx_proofs.iter()
-            .map(|p| p.gas_used())
-            .sum();
+        let total_gas_used: u64 = tx_proofs.iter().map(|p| p.gas_used()).sum();
 
         // Compute Merkle root of proofs
         let proof_merkle_root = self.compute_merkle_root(&tx_proofs)?;
@@ -106,13 +104,14 @@ impl ProofAggregator {
     /// Compute Merkle root of transaction proofs.
     fn compute_merkle_root(&self, proofs: &[TransactionProof]) -> Result<[u8; 32]> {
         use blake3::Hasher;
-        
+
         if proofs.is_empty() {
             return Ok([0u8; 32]);
         }
 
         // Simple merkle tree construction
-        let mut leaves: Vec<[u8; 32]> = proofs.iter()
+        let mut leaves: Vec<[u8; 32]> = proofs
+            .iter()
             .map(|p| {
                 let mut hasher = Hasher::new();
                 hasher.update(&p.tx_hash.0);
@@ -147,7 +146,7 @@ impl ProofAggregator {
 
         // Verify each transaction proof
         // TODO: Implement proper verification
-        
+
         Ok(true)
     }
 }
