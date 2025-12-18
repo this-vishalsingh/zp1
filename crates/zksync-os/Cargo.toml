@@ -1,0 +1,36 @@
+[package]
+name = "zp1-zksync-os"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ZKsync OS integration for ZP1 zkVM - enables running and proving zksync-os RISC-V binaries"
+repository.workspace = true
+keywords = ["zksync", "zkvm", "risc-v", "stark", "proof"]
+
+[dependencies]
+# ZP1 internal crates
+zp1-primitives = { path = "../primitives" }
+zp1-executor = { path = "../executor" }
+zp1-prover = { path = "../prover" }
+zp1-verifier = { path = "../verifier" }
+zp1-trace = { path = "../trace" }
+zp1-delegation = { path = "../delegation" }
+
+# External dependencies
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+bytemuck.workspace = true
+rayon.workspace = true
+sha2 = "0.10"
+
+# Optional: for fetching from network/RPC
+reqwest = { version = "0.11", features = ["json", "blocking"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+rpc = ["reqwest", "tokio"]
