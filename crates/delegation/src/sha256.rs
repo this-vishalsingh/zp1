@@ -29,7 +29,7 @@
 //! let trace = generate_sha256_trace(message, &digest);
 //! ```
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use zp1_primitives::field::M31;
 
 /// SHA-256 digest output size in bytes
@@ -84,8 +84,7 @@ pub struct Sha256Trace {
 
 /// SHA-256 initial hash values (first 32 bits of fractional parts of square roots of first 8 primes)
 const H_INITIAL: [u32; 8] = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
 /// SHA-256 round constants (first 32 bits of fractional parts of cube roots of first 64 primes)
@@ -170,19 +169,19 @@ fn lower_sigma1(x: u32) -> u32 {
 fn pad_message(message: &[u8]) -> Vec<u8> {
     let msg_len = message.len();
     let bit_len = (msg_len as u64) * 8;
-    
+
     // Calculate padding: message + 0x80 + zeros + length (64 bits)
     let mut padded = Vec::from(message);
     padded.push(0x80);
-    
+
     // Pad with zeros until length ≡ 448 (mod 512)
     while (padded.len() % 64) != 56 {
         padded.push(0);
     }
-    
+
     // Append original length in bits as 64-bit big-endian
     padded.extend_from_slice(&bit_len.to_be_bytes());
-    
+
     padded
 }
 
@@ -202,22 +201,22 @@ fn pad_message(message: &[u8]) -> Vec<u8> {
 pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha256Trace {
     let padded = pad_message(message);
     let num_blocks = padded.len() / 64;
-    
+
     let mut initial_state = Vec::new();
     for &h in &H_INITIAL {
         let [lo, hi] = u32_to_m31_limbs(h);
         initial_state.push(lo);
         initial_state.push(hi);
     }
-    
+
     let mut h = H_INITIAL;
     let mut message_schedule = Vec::new();
     let mut working_vars = Vec::new();
-    
+
     // Process each 512-bit block
     for block_idx in 0..num_blocks {
         let block = &padded[block_idx * 64..(block_idx + 1) * 64];
-        
+
         // Prepare message schedule W[0..63]
         let mut w = [0u32; 64];
         for i in 0..16 {
@@ -228,14 +227,14 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
                 block[i * 4 + 3],
             ]);
         }
-        
+
         for i in 16..64 {
             w[i] = lower_sigma1(w[i - 2])
                 .wrapping_add(w[i - 7])
                 .wrapping_add(lower_sigma0(w[i - 15]))
                 .wrapping_add(w[i - 16]);
         }
-        
+
         // Convert message schedule to M31 limbs
         let mut w_limbs = Vec::new();
         for &wi in &w {
@@ -244,7 +243,7 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
             w_limbs.push(hi);
         }
         message_schedule.push(w_limbs);
-        
+
         // Initialize working variables
         let mut a = h[0];
         let mut b = h[1];
@@ -254,7 +253,7 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
         let mut f = h[5];
         let mut g = h[6];
         let mut hh = h[7];
-        
+
         // Main compression loop - store working variables for each round
         for i in 0..64 {
             let t1 = hh
@@ -263,7 +262,7 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
                 .wrapping_add(K[i])
                 .wrapping_add(w[i]);
             let t2 = sigma0(a).wrapping_add(maj(a, b, c));
-            
+
             hh = g;
             g = f;
             f = e;
@@ -272,20 +271,28 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
             c = b;
             b = a;
             a = t1.wrapping_add(t2);
-            
+
             // Store working variables as M31 limbs (flat structure)
             working_vars.push(vec![
-                u32_to_m31_limbs(a)[0], u32_to_m31_limbs(a)[1],
-                u32_to_m31_limbs(b)[0], u32_to_m31_limbs(b)[1],
-                u32_to_m31_limbs(c)[0], u32_to_m31_limbs(c)[1],
-                u32_to_m31_limbs(d)[0], u32_to_m31_limbs(d)[1],
-                u32_to_m31_limbs(e)[0], u32_to_m31_limbs(e)[1],
-                u32_to_m31_limbs(f)[0], u32_to_m31_limbs(f)[1],
-                u32_to_m31_limbs(g)[0], u32_to_m31_limbs(g)[1],
-                u32_to_m31_limbs(hh)[0], u32_to_m31_limbs(hh)[1],
+                u32_to_m31_limbs(a)[0],
+                u32_to_m31_limbs(a)[1],
+                u32_to_m31_limbs(b)[0],
+                u32_to_m31_limbs(b)[1],
+                u32_to_m31_limbs(c)[0],
+                u32_to_m31_limbs(c)[1],
+                u32_to_m31_limbs(d)[0],
+                u32_to_m31_limbs(d)[1],
+                u32_to_m31_limbs(e)[0],
+                u32_to_m31_limbs(e)[1],
+                u32_to_m31_limbs(f)[0],
+                u32_to_m31_limbs(f)[1],
+                u32_to_m31_limbs(g)[0],
+                u32_to_m31_limbs(g)[1],
+                u32_to_m31_limbs(hh)[0],
+                u32_to_m31_limbs(hh)[1],
             ]);
         }
-        
+
         // Update hash values
         h[0] = h[0].wrapping_add(a);
         h[1] = h[1].wrapping_add(b);
@@ -296,7 +303,7 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
         h[6] = h[6].wrapping_add(g);
         h[7] = h[7].wrapping_add(hh);
     }
-    
+
     // Convert final state to M31 limbs
     let mut final_state = Vec::new();
     for &hi in &h {
@@ -304,18 +311,18 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
         final_state.push(lo);
         final_state.push(high);
     }
-    
+
     // Verify digest matches
     let mut computed_digest = [0u8; 32];
     for (i, &hi) in h.iter().enumerate() {
         computed_digest[i * 4..(i + 1) * 4].copy_from_slice(&hi.to_be_bytes());
     }
-    
+
     assert_eq!(
         &computed_digest, expected_digest,
         "SHA-256 trace generation: digest mismatch"
     );
-    
+
     Sha256Trace {
         message: message.to_vec(),
         num_blocks,
@@ -341,30 +348,30 @@ pub fn generate_sha256_trace(message: &[u8], expected_digest: &[u8; 32]) -> Sha2
 pub fn trace_to_rows(trace: &Sha256Trace) -> Vec<Vec<M31>> {
     let mut rows = Vec::new();
     let rounds_per_block = 64;
-    
+
     for block_idx in 0..trace.num_blocks {
         let w_limbs = &trace.message_schedule[block_idx];
         let round_start = block_idx * rounds_per_block;
-        
+
         for round in 0..rounds_per_block {
             let mut row = Vec::new();
-            
+
             // Message schedule word W[round] (2 limbs)
             row.push(w_limbs[round * 2]);
             row.push(w_limbs[round * 2 + 1]);
-            
+
             // Round constant K[round] (2 limbs)
             let [k_lo, k_hi] = u32_to_m31_limbs(K[round]);
             row.push(k_lo);
             row.push(k_hi);
-            
+
             // Working variables (16 limbs: a-h, 2 each)
             row.extend_from_slice(&trace.working_vars[round_start + round]);
-            
+
             rows.push(row);
         }
     }
-    
+
     rows
 }
 
@@ -376,15 +383,14 @@ mod tests {
     fn test_sha256_empty() {
         let message = b"";
         let digest = sha256(message);
-        
+
         // Expected: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         let expected = [
-            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
-            0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
-            0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
-            0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f,
+            0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
+            0x78, 0x52, 0xb8, 0x55,
         ];
-        
+
         assert_eq!(digest, expected);
     }
 
@@ -392,15 +398,14 @@ mod tests {
     fn test_sha256_hello() {
         let message = b"hello world";
         let digest = sha256(message);
-        
+
         // Expected: b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
         let expected = [
-            0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08,
-            0xa5, 0x2e, 0x52, 0xd7, 0xda, 0x7d, 0xab, 0xfa,
-            0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53, 0x80, 0xee,
-            0x90, 0x88, 0xf7, 0xac, 0xe2, 0xef, 0xcd, 0xe9,
+            0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08, 0xa5, 0x2e, 0x52, 0xd7, 0xda, 0x7d,
+            0xab, 0xfa, 0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53, 0x80, 0xee, 0x90, 0x88, 0xf7, 0xac,
+            0xe2, 0xef, 0xcd, 0xe9,
         ];
-        
+
         assert_eq!(digest, expected);
     }
 
@@ -408,15 +413,14 @@ mod tests {
     fn test_sha256_abc() {
         let message = b"abc";
         let digest = sha256(message);
-        
+
         // Expected: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
         let expected = [
-            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
-            0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
-            0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
-            0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
+            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae,
+            0x22, 0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61,
+            0xf2, 0x00, 0x15, 0xad,
         ];
-        
+
         assert_eq!(digest, expected);
     }
 
@@ -425,10 +429,10 @@ mod tests {
         // Test with a message longer than 64 bytes to exercise multiple blocks
         let message = b"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
         let digest = sha256(message);
-        
+
         // Verify it produces a valid 32-byte digest
         assert_eq!(digest.len(), 32);
-        
+
         // Verify it's deterministic
         let digest2 = sha256(message);
         assert_eq!(digest, digest2);
@@ -439,7 +443,7 @@ mod tests {
         let message = b"hello";
         let digest = sha256(message);
         let trace = generate_sha256_trace(message, &digest);
-        
+
         assert_eq!(trace.message, message);
         assert_eq!(trace.digest, digest);
         assert_eq!(trace.num_blocks, 1); // "hello" fits in one block after padding
@@ -457,7 +461,7 @@ mod tests {
         let digest = sha256(message);
         let trace = generate_sha256_trace(message, &digest);
         let rows = trace_to_rows(&trace);
-        
+
         assert_eq!(rows.len(), 64); // One block = 64 rounds
         assert_eq!(rows[0].len(), 20); // W(2) + K(2) + vars(16)
     }
@@ -469,12 +473,12 @@ mod tests {
         let padded1 = pad_message(msg1);
         assert_eq!(padded1.len() % 64, 0); // Must be multiple of 64
         assert_eq!(padded1[1], 0x80); // First padding byte
-        
+
         // Test with 55-byte message (edge case)
         let msg2 = &[0u8; 55];
         let padded2 = pad_message(msg2);
         assert_eq!(padded2.len(), 64); // Should fit in one block
-        
+
         // Test with 56-byte message (needs extra block)
         let msg3 = &[0u8; 56];
         let padded3 = pad_message(msg3);
@@ -485,9 +489,9 @@ mod tests {
     fn test_digest_to_limbs() {
         let digest = sha256(b"test");
         let limbs = digest_to_m31_limbs(&digest);
-        
+
         assert_eq!(limbs.len(), 16); // 8 u32 values × 2 limbs each
-        
+
         // Verify all limbs are valid M31 elements (< 2^31 - 1)
         for limb in &limbs {
             assert!(limb.as_u32() < (1u32 << 31) - 1);
@@ -497,12 +501,12 @@ mod tests {
     #[test]
     fn test_rotation_functions() {
         let x = 0x12345678u32;
-        
+
         // Test rotr
         assert_eq!(rotr(x, 0), x);
         assert_eq!(rotr(x, 32), x);
         assert_eq!(rotr(x, 4), 0x81234567);
-        
+
         // Test that sigma functions don't panic
         let _ = sigma0(x);
         let _ = sigma1(x);
@@ -515,7 +519,7 @@ mod tests {
         let x = 0xAAAAAAAAu32;
         let y = 0xCCCCCCCCu32;
         let z = 0xF0F0F0F0u32;
-        
+
         // Test ch and maj don't panic
         let _ = ch(x, y, z);
         let _ = maj(x, y, z);

@@ -11,8 +11,8 @@
 //! - Comparison operations
 //! - Bitwise operations (and, or, xor, shift)
 
-use zp1_primitives::M31;
 use std::cmp::Ordering;
+use zp1_primitives::M31;
 
 /// A 256-bit unsigned integer represented as 16 x 16-bit limbs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -99,11 +99,11 @@ impl U256 {
         if n >= 256 {
             return Self::ZERO;
         }
-        
+
         let limb_shift = n / 16;
         let bit_shift = n % 16;
         let mut result = Self::ZERO;
-        
+
         if bit_shift == 0 {
             for i in limb_shift..16 {
                 result.limbs[i] = self.limbs[i - limb_shift];
@@ -118,7 +118,7 @@ impl U256 {
                 }
             }
         }
-        
+
         result
     }
 
@@ -127,11 +127,11 @@ impl U256 {
         if n >= 256 {
             return Self::ZERO;
         }
-        
+
         let limb_shift = n / 16;
         let bit_shift = n % 16;
         let mut result = Self::ZERO;
-        
+
         if bit_shift == 0 {
             for i in 0..(16 - limb_shift) {
                 result.limbs[i] = self.limbs[i + limb_shift];
@@ -146,7 +146,7 @@ impl U256 {
                 }
             }
         }
-        
+
         result
     }
 
@@ -346,7 +346,10 @@ pub struct U256DivTrace {
 
 /// Generate trace for U256 division (quotient and remainder).
 /// Uses long division algorithm.
-pub fn u256_div_trace(dividend: &U256, divisor: &U256) -> Result<(U256, U256, U256DivTrace), &'static str> {
+pub fn u256_div_trace(
+    dividend: &U256,
+    divisor: &U256,
+) -> Result<(U256, U256, U256DivTrace), &'static str> {
     if divisor.is_zero() {
         return Err("Division by zero");
     }
@@ -358,20 +361,20 @@ pub fn u256_div_trace(dividend: &U256, divisor: &U256) -> Result<(U256, U256, U2
     for i in (0..256).rev() {
         // remainder = remainder << 1
         remainder = remainder.shl(1);
-        
+
         // Get bit i of dividend
         let limb_idx = i / 16;
         let bit_idx = i % 16;
         let bit = (dividend.limbs[limb_idx] >> bit_idx) & 1;
-        
+
         // Set LSB of remainder to this bit
         remainder.limbs[0] |= bit;
-        
+
         // If remainder >= divisor, subtract and set quotient bit
         if remainder.cmp(divisor) != Ordering::Less {
             let (new_remainder, _) = u256_sub_trace(&remainder, divisor);
             remainder = new_remainder;
-            
+
             // Set bit i of quotient
             quotient.limbs[limb_idx] |= 1 << bit_idx;
         }
@@ -415,7 +418,7 @@ pub fn u256_addmod_trace(a: &U256, b: &U256, modulus: &U256) -> (U256, U256AddMo
     }
 
     let (sum, add_trace) = u256_add_trace(a, b);
-    
+
     // Handle overflow case: if overflow occurred, we need full modular reduction
     let result = if add_trace.overflow.value() != 0 {
         // Overflow occurred - need to handle the carry bit properly
@@ -474,20 +477,24 @@ pub fn u256_mulmod_trace(a: &U256, b: &U256, modulus: &U256) -> (U256, U256MulMo
     }
 
     let (product_lo, product_hi, _) = u256_mul_trace(a, b);
-    
+
     // Need to compute (product_hi << 256 | product_lo) mod modulus
     // Simplified: if product_hi is zero, just use product_lo mod modulus
     let result = if product_hi.is_zero() {
         if product_lo.cmp(modulus) == Ordering::Less {
             product_lo
         } else {
-            let (_, remainder, _) = u256_div_trace(&product_lo, modulus).unwrap_or((U256::ZERO, U256::ZERO, U256DivTrace {
-                dividend: U256::ZERO.to_m31_limbs(),
-                divisor: U256::ZERO.to_m31_limbs(),
-                quotient: U256::ZERO.to_m31_limbs(),
-                remainder: U256::ZERO.to_m31_limbs(),
-                witness: Vec::new(),
-            }));
+            let (_, remainder, _) = u256_div_trace(&product_lo, modulus).unwrap_or((
+                U256::ZERO,
+                U256::ZERO,
+                U256DivTrace {
+                    dividend: U256::ZERO.to_m31_limbs(),
+                    divisor: U256::ZERO.to_m31_limbs(),
+                    quotient: U256::ZERO.to_m31_limbs(),
+                    remainder: U256::ZERO.to_m31_limbs(),
+                    witness: Vec::new(),
+                },
+            ));
             remainder
         }
     } else {
@@ -605,7 +612,7 @@ pub struct U256CmpTrace {
 /// Generate trace for U256 comparison.
 pub fn u256_cmp_trace(a: &U256, b: &U256) -> U256CmpTrace {
     let mut limb_diffs = [M31::ZERO; 16];
-    
+
     for i in 0..16 {
         let diff = (a.limbs[i] as i32) - (b.limbs[i] as i32);
         limb_diffs[i] = M31::new(diff.abs() as u32);
@@ -687,26 +694,14 @@ pub fn u256_xor_trace(a: &U256, b: &U256) -> U256BitwiseTrace {
 
 /// Constraint for U256 addition (degree 2).
 /// For each limb i: result[i] + carry[i] * 2^16 = a[i] + b[i] + carry[i-1]
-pub fn u256_add_constraint(
-    a: M31,
-    b: M31,
-    result: M31,
-    carry_in: M31,
-    carry_out: M31,
-) -> M31 {
+pub fn u256_add_constraint(a: M31, b: M31, result: M31, carry_in: M31, carry_out: M31) -> M31 {
     let two_16 = M31::new(1 << 16);
     result + carry_out * two_16 - a - b - carry_in
 }
 
 /// Constraint for U256 subtraction.
 /// For each limb i: a[i] = b[i] + result[i] + borrow[i-1] - borrow[i] * 2^16
-pub fn u256_sub_constraint(
-    a: M31,
-    b: M31,
-    result: M31,
-    borrow_in: M31,
-    borrow_out: M31,
-) -> M31 {
+pub fn u256_sub_constraint(a: M31, b: M31, result: M31, borrow_in: M31, borrow_out: M31) -> M31 {
     let two_16 = M31::new(1 << 16);
     a - b - result - borrow_in + borrow_out * two_16
 }
@@ -721,24 +716,24 @@ pub fn u256_div_constraint_check(
 ) -> bool {
     // Would use full AIR constraints in production
     // This is a simplified correctness check
-    
+
     // Convert to U256 for checking
     let div = U256::from_m31_limbs(dividend);
     let q = U256::from_m31_limbs(quotient);
     let r = U256::from_m31_limbs(remainder);
     let d = U256::from_m31_limbs(divisor);
-    
+
     // Check: remainder < divisor
     if r.cmp(&d) != Ordering::Less {
         return false;
     }
-    
+
     // Check: q * d + r = dividend
     let (prod_lo, prod_hi, _) = u256_mul_trace(&q, &d);
     if !prod_hi.is_zero() {
         return false; // overflow
     }
-    
+
     let (sum, _) = u256_add_trace(&prod_lo, &r);
     sum == div
 }
@@ -796,7 +791,7 @@ pub enum U256DelegationTrace {
 /// Create a U256 addition delegation call.
 pub fn delegate_u256_add(a: &U256, b: &U256) -> U256DelegationCall {
     let (result, trace) = u256_add_trace(a, b);
-    
+
     U256DelegationCall {
         op_type: U256OpType::Add,
         input_a: a.to_m31_limbs(),
@@ -811,7 +806,7 @@ pub fn delegate_u256_add(a: &U256, b: &U256) -> U256DelegationCall {
 /// Create a U256 multiplication delegation call.
 pub fn delegate_u256_mul(a: &U256, b: &U256) -> U256DelegationCall {
     let (result_lo, result_hi, trace) = u256_mul_trace(a, b);
-    
+
     U256DelegationCall {
         op_type: U256OpType::Mul,
         input_a: a.to_m31_limbs(),
@@ -826,7 +821,7 @@ pub fn delegate_u256_mul(a: &U256, b: &U256) -> U256DelegationCall {
 /// Create a U256 modular multiplication delegation call.
 pub fn delegate_u256_mulmod(a: &U256, b: &U256, modulus: &U256) -> U256DelegationCall {
     let (result, trace) = u256_mulmod_trace(a, b, modulus);
-    
+
     U256DelegationCall {
         op_type: U256OpType::MulMod,
         input_a: a.to_m31_limbs(),
@@ -841,7 +836,7 @@ pub fn delegate_u256_mulmod(a: &U256, b: &U256, modulus: &U256) -> U256Delegatio
 /// Create a U256 modular exponentiation delegation call.
 pub fn delegate_u256_modexp(base: &U256, exponent: &U256, modulus: &U256) -> U256DelegationCall {
     let (result, trace) = u256_modexp_trace(base, exponent, modulus);
-    
+
     U256DelegationCall {
         op_type: U256OpType::ModExp,
         input_a: base.to_m31_limbs(),
@@ -866,7 +861,7 @@ impl U256Air {
     pub fn new(op_type: U256OpType) -> Self {
         Self { op_type }
     }
-    
+
     /// Number of trace columns needed for this operation.
     pub fn num_columns(&self) -> usize {
         match self.op_type {
@@ -875,14 +870,14 @@ impl U256Air {
             U256OpType::Mul => 16 * 4,          // a, b, result_lo, result_hi
             U256OpType::Div => 16 * 4,          // dividend, divisor, quotient, remainder
             U256OpType::AddMod | U256OpType::MulMod => 16 * 5, // a, b, modulus, result, intermediate
-            U256OpType::ModExp => 16 * 4,       // base, exponent, modulus, result (+ intermediate steps)
+            U256OpType::ModExp => 16 * 4, // base, exponent, modulus, result (+ intermediate steps)
             U256OpType::And | U256OpType::Or | U256OpType::Xor => 16 * 3, // a, b, result
             U256OpType::Shl | U256OpType::Shr => 16 * 2 + 1, // input, output, shift_amount
             U256OpType::Cmp => 16 * 2 + 1 + 16, // a, b, result, limb_diffs
             _ => 16 * 2,
         }
     }
-    
+
     /// Degree of constraints.
     pub fn constraint_degree(&self) -> usize {
         match self.op_type {
@@ -933,203 +928,203 @@ mod tests {
         assert_eq!(result_lo.limbs[0], 20000);
         assert_eq!(result_hi.limbs[0], 0);
     }
-    
+
     #[test]
     fn test_u256_sub() {
         let a = U256::from_u64(1000);
         let b = U256::from_u64(300);
-        
+
         let (result, trace) = u256_sub_trace(&a, &b);
-        
+
         assert_eq!(result.limbs[0], 700);
         assert_eq!(trace.underflow.value(), 0);
     }
-    
+
     #[test]
     fn test_u256_sub_underflow() {
         let a = U256::from_u64(100);
         let b = U256::from_u64(200);
-        
+
         let (_, trace) = u256_sub_trace(&a, &b);
-        
+
         assert_eq!(trace.underflow.value(), 1);
     }
-    
+
     #[test]
     fn test_u256_div() {
         let dividend = U256::from_u64(1000);
         let divisor = U256::from_u64(30);
-        
+
         let (quotient, remainder, _trace) = u256_div_trace(&dividend, &divisor).unwrap();
-        
+
         assert_eq!(quotient.limbs[0], 33);
         assert_eq!(remainder.limbs[0], 10);
     }
-    
+
     #[test]
     fn test_u256_div_zero() {
         let dividend = U256::from_u64(100);
         let divisor = U256::ZERO;
-        
+
         assert!(u256_div_trace(&dividend, &divisor).is_err());
     }
-    
+
     #[test]
     fn test_u256_addmod() {
         let a = U256::from_u64(100);
         let b = U256::from_u64(50);
         let modulus = U256::from_u64(70);
-        
+
         let (result, _trace) = u256_addmod_trace(&a, &b, &modulus);
-        
+
         // (100 + 50) % 70 = 80
         assert_eq!(result.limbs[0], 80);
     }
-    
+
     #[test]
     fn test_u256_mulmod() {
         let a = U256::from_u64(20);
         let b = U256::from_u64(30);
         let modulus = U256::from_u64(100);
-        
+
         let (result, _trace) = u256_mulmod_trace(&a, &b, &modulus);
-        
+
         // (20 * 30) % 100 = 600 % 100 = 0
         assert_eq!(result.limbs[0], 0);
     }
-    
+
     #[test]
     fn test_u256_cmp() {
         let a = U256::from_u64(100);
         let b = U256::from_u64(50);
-        
+
         assert_eq!(a.cmp(&b), Ordering::Greater);
         assert_eq!(b.cmp(&a), Ordering::Less);
         assert_eq!(a.cmp(&a), Ordering::Equal);
     }
-    
+
     #[test]
     fn test_u256_bitwise() {
         let a = U256::from_u64(0b1100);
         let b = U256::from_u64(0b1010);
-        
+
         let and_result = a.bitand(&b);
         assert_eq!(and_result.limbs[0], 0b1000);
-        
+
         let or_result = a.bitor(&b);
         assert_eq!(or_result.limbs[0], 0b1110);
-        
+
         let xor_result = a.bitxor(&b);
         assert_eq!(xor_result.limbs[0], 0b0110);
     }
-    
+
     #[test]
     fn test_u256_shift() {
         let a = U256::from_u64(0b1100);
-        
+
         let shl = a.shl(2);
         assert_eq!(shl.limbs[0], 0b110000);
-        
+
         let shr = a.shr(1);
         assert_eq!(shr.limbs[0], 0b110);
     }
-    
+
     #[test]
     fn test_delegation_add() {
         let a = U256::from_u64(100);
         let b = U256::from_u64(200);
-        
+
         let call = delegate_u256_add(&a, &b);
-        
+
         assert_eq!(call.op_type, U256OpType::Add);
         assert_eq!(call.output[0].value(), 300);
     }
-    
+
     #[test]
     fn test_delegation_mulmod() {
         let a = U256::from_u64(15);
         let b = U256::from_u64(20);
         let modulus = U256::from_u64(100);
-        
+
         let call = delegate_u256_mulmod(&a, &b, &modulus);
-        
+
         assert_eq!(call.op_type, U256OpType::MulMod);
         // 15 * 20 = 300, 300 % 100 = 0
         assert_eq!(call.output[0].value(), 0);
     }
-    
+
     #[test]
     fn test_u256_air() {
         let air = U256Air::new(U256OpType::Add);
         assert!(air.num_columns() > 0);
         assert_eq!(air.constraint_degree(), 2);
-        
+
         let mul_air = U256Air::new(U256OpType::Mul);
         assert_eq!(mul_air.constraint_degree(), 3);
     }
-    
+
     #[test]
     fn test_u256_modexp_simple() {
         // 3^4 mod 7 = 81 mod 7 = 4
         let base = U256::from_u64(3);
         let exponent = U256::from_u64(4);
         let modulus = U256::from_u64(7);
-        
+
         let (result, trace) = u256_modexp_trace(&base, &exponent, &modulus);
-        
+
         assert_eq!(result.limbs[0], 4);
         assert!(!trace.intermediate_steps.is_empty());
     }
-    
+
     #[test]
     fn test_u256_modexp_zero_exponent() {
         // Any number to the power 0 is 1
         let base = U256::from_u64(123);
         let exponent = U256::ZERO;
         let modulus = U256::from_u64(100);
-        
+
         let (result, _trace) = u256_modexp_trace(&base, &exponent, &modulus);
-        
+
         assert_eq!(result, U256::ONE);
     }
-    
+
     #[test]
     fn test_u256_modexp_large() {
         // 2^8 mod 17 = 256 mod 17 = 1
         let base = U256::from_u64(2);
         let exponent = U256::from_u64(8);
         let modulus = U256::from_u64(17);
-        
+
         let (result, _trace) = u256_modexp_trace(&base, &exponent, &modulus);
-        
+
         assert_eq!(result.limbs[0], 1);
     }
-    
+
     #[test]
     fn test_u256_modexp_base_larger_than_modulus() {
         // 10^2 mod 7 = (10 mod 7)^2 mod 7 = 3^2 mod 7 = 2
         let base = U256::from_u64(10);
         let exponent = U256::from_u64(2);
         let modulus = U256::from_u64(7);
-        
+
         let (result, _trace) = u256_modexp_trace(&base, &exponent, &modulus);
-        
+
         assert_eq!(result.limbs[0], 2);
     }
-    
+
     #[test]
     fn test_delegation_modexp() {
         let base = U256::from_u64(5);
         let exponent = U256::from_u64(3);
         let modulus = U256::from_u64(13);
-        
+
         let call = delegate_u256_modexp(&base, &exponent, &modulus);
-        
+
         assert_eq!(call.op_type, U256OpType::ModExp);
         // 5^3 = 125, 125 mod 13 = 8
         assert_eq!(call.output[0].value(), 8);
     }
-    
+
     #[test]
     fn test_u256_from_le_bytes_roundtrip() {
         let mut bytes = [0u8; 32];
@@ -1137,20 +1132,20 @@ mod tests {
         bytes[1] = 0x34;
         bytes[2] = 0x56;
         bytes[3] = 0x78;
-        
+
         let num = U256::from_le_bytes(&bytes);
         let result_bytes = num.to_le_bytes();
-        
+
         assert_eq!(bytes, result_bytes);
     }
-    
+
     #[test]
     fn test_u256_div_constraint() {
         let dividend = U256::from_u64(100);
         let divisor = U256::from_u64(7);
-        
+
         let (quotient, remainder, trace) = u256_div_trace(&dividend, &divisor).unwrap();
-        
+
         // Verify constraint: quotient * divisor + remainder = dividend
         assert!(u256_div_constraint_check(
             &trace.dividend,
@@ -1158,58 +1153,58 @@ mod tests {
             &trace.quotient,
             &trace.remainder
         ));
-        
+
         // 100 / 7 = 14 remainder 2
         assert_eq!(quotient.limbs[0], 14);
         assert_eq!(remainder.limbs[0], 2);
     }
-    
+
     #[test]
     fn test_u256_large_shift() {
         let a = U256::from_u64(0xFF);
-        
+
         // Shift beyond 256 bits should return zero
         let result = a.shl(300);
         assert_eq!(result, U256::ZERO);
-        
+
         let result2 = a.shr(300);
         assert_eq!(result2, U256::ZERO);
     }
-    
+
     #[test]
     fn test_u256_not() {
         let a = U256::ZERO;
         let result = a.not();
-        
+
         // NOT of zero should be all 1s
         for limb in result.limbs.iter() {
             assert_eq!(*limb, 0xFFFF);
         }
     }
-    
+
     #[test]
     fn test_u256_addmod_overflow() {
         // Test case where a + b > modulus (within 256 bits)
         let a = U256::from_u64(800);
         let b = U256::from_u64(700);
         let modulus = U256::from_u64(1000);
-        
+
         let (result, _trace) = u256_addmod_trace(&a, &b, &modulus);
-        
+
         // (800 + 700) % 1000 = 1500 % 1000 = 500
         assert_eq!(result.limbs[0], 500);
         assert!(result.cmp(&modulus) == Ordering::Less);
     }
-    
+
     #[test]
     fn test_u256_addmod_no_reduction() {
         // Test case where a + b < modulus
         let a = U256::from_u64(100);
         let b = U256::from_u64(200);
         let modulus = U256::from_u64(1000);
-        
+
         let (result, _trace) = u256_addmod_trace(&a, &b, &modulus);
-        
+
         // 100 + 200 = 300, no reduction needed
         assert_eq!(result.limbs[0], 300);
     }

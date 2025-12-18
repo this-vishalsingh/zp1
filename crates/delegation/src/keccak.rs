@@ -61,8 +61,8 @@
 //! 3. Writes output to memory
 //! 4. Records the operation in the Keccak trace
 
-use zp1_primitives::M31;
 use serde::{Deserialize, Serialize};
+use zp1_primitives::M31;
 
 // ============================================================================
 // Keccak-256 Constants
@@ -85,32 +85,40 @@ pub const KECCAK_OUTPUT_BYTES: usize = 32;
 
 /// Round constants for ι step.
 pub const KECCAK_ROUND_CONSTANTS: [u64; 24] = [
-    0x0000000000000001, 0x0000000000008082, 0x800000000000808a,
-    0x8000000080008000, 0x000000000000808b, 0x0000000080000001,
-    0x8000000080008081, 0x8000000000008009, 0x000000000000008a,
-    0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
-    0x000000008000808b, 0x800000000000008b, 0x8000000000008089,
-    0x8000000000008003, 0x8000000000008002, 0x8000000000000080,
-    0x000000000000800a, 0x800000008000000a, 0x8000000080008081,
-    0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+    0x0000000000000001,
+    0x0000000000008082,
+    0x800000000000808a,
+    0x8000000080008000,
+    0x000000000000808b,
+    0x0000000080000001,
+    0x8000000080008081,
+    0x8000000000008009,
+    0x000000000000008a,
+    0x0000000000000088,
+    0x0000000080008009,
+    0x000000008000000a,
+    0x000000008000808b,
+    0x800000000000008b,
+    0x8000000000008089,
+    0x8000000000008003,
+    0x8000000000008002,
+    0x8000000000000080,
+    0x000000000000800a,
+    0x800000008000000a,
+    0x8000000080008081,
+    0x8000000000008080,
+    0x0000000080000001,
+    0x8000000080008008,
 ];
 
 /// Rotation offsets for ρ step.
 pub const KECCAK_RHO_OFFSETS: [u32; 25] = [
-    0,  1,  62, 28, 27,
-    36, 44, 6,  55, 20,
-    3,  10, 43, 25, 39,
-    41, 45, 15, 21, 8,
-    18, 2,  61, 56, 14,
+    0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14,
 ];
 
 /// Lane permutation for π step (maps (x,y) -> (y, 2x+3y mod 5)).
 pub const KECCAK_PI_PERMUTATION: [usize; 25] = [
-    0, 6, 12, 18, 24,
-    3, 9, 10, 16, 22,
-    1, 7, 13, 19, 20,
-    4, 5, 11, 17, 23,
-    2, 8, 14, 15, 21,
+    0, 6, 12, 18, 24, 3, 9, 10, 16, 22, 1, 7, 13, 19, 20, 4, 5, 11, 17, 23, 2, 8, 14, 15, 21,
 ];
 
 // ============================================================================
@@ -203,50 +211,53 @@ pub fn keccak256(input: &[u8]) -> [u8; 32] {
 /// This executes Keccak step-by-step and records all intermediate states.
 pub fn generate_keccak_trace(input: &[u8]) -> KeccakTrace {
     use tiny_keccak::{Hasher, Keccak};
-    
+
     // Pad input to multiple of rate
-    let padded_len = ((input.len() + KECCAK_RATE_BYTES - 1) / KECCAK_RATE_BYTES) * KECCAK_RATE_BYTES;
+    let padded_len =
+        ((input.len() + KECCAK_RATE_BYTES - 1) / KECCAK_RATE_BYTES) * KECCAK_RATE_BYTES;
     let mut padded = vec![0u8; padded_len];
     padded[..input.len()].copy_from_slice(input);
-    
+
     // Apply padding (0x01 || 0x00* || 0x80)
     if input.len() < padded_len {
         padded[input.len()] = 0x01;
         padded[padded_len - 1] |= 0x80;
     }
-    
+
     let mut state = [0u64; 25];
     let mut absorption_states = Vec::new();
-    
+
     // Absorb phase
     for chunk in padded.chunks(KECCAK_RATE_BYTES) {
         // XOR chunk into state
         for (i, bytes) in chunk.chunks(8).enumerate() {
-            if i >= 17 { break; } // Only first 17 lanes (136 bytes)
+            if i >= 17 {
+                break;
+            } // Only first 17 lanes (136 bytes)
             let mut val = 0u64;
             for (j, &b) in bytes.iter().enumerate() {
                 val |= (b as u64) << (8 * j);
             }
             state[i] ^= val;
         }
-        
+
         // Apply permutation
         keccak_f1600(&mut state);
         absorption_states.push(state);
     }
-    
+
     // Record round states for the final permutation
     // (For simplicity, we only record the final state here.
     //  A full implementation would record all 24 intermediate round states.)
     let round_states = vec![state; KECCAK_ROUNDS];
-    
+
     // Squeeze phase
     let mut output = [0u8; 32];
     for (i, chunk) in output.chunks_mut(8).enumerate() {
         let lane = state[i].to_le_bytes();
         chunk.copy_from_slice(&lane[..chunk.len()]);
     }
-    
+
     KeccakTrace {
         input: input.to_vec(),
         output,
@@ -267,18 +278,18 @@ fn keccak_f1600(state: &mut [u64; 25]) {
         for x in 0..5 {
             c[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
         }
-        
+
         let mut d = [0u64; 5];
         for x in 0..5 {
             d[x] = c[(x + 4) % 5] ^ c[(x + 1) % 5].rotate_left(1);
         }
-        
+
         for x in 0..5 {
             for y in 0..5 {
                 state[x + 5 * y] ^= d[x];
             }
         }
-        
+
         // ρ and π steps
         let mut temp = [0u64; 25];
         for i in 0..25 {
@@ -289,7 +300,7 @@ fn keccak_f1600(state: &mut [u64; 25]) {
             temp[new_x + 5 * new_y] = state[i].rotate_left(KECCAK_RHO_OFFSETS[i]);
         }
         *state = temp;
-        
+
         // χ step
         for y in 0..5 {
             let mut t = [0u64; 5];
@@ -300,7 +311,7 @@ fn keccak_f1600(state: &mut [u64; 25]) {
                 state[x + 5 * y] = t[x] ^ ((!t[(x + 1) % 5]) & t[(x + 2) % 5]);
             }
         }
-        
+
         // ι step
         state[0] ^= KECCAK_ROUND_CONSTANTS[round];
     }
@@ -332,7 +343,7 @@ pub fn m31_limbs_to_u64(limbs: &[M31; 3]) -> u64 {
 /// This converts a KeccakTrace into a format suitable for the AIR.
 pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
     let mut rows = Vec::new();
-    
+
     // For each absorption
     for (i, &state) in trace.absorption_states.iter().enumerate() {
         let mut state_limbs = Vec::new();
@@ -340,7 +351,7 @@ pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
             let limbs = u64_to_m31_limbs(lane);
             state_limbs.extend_from_slice(&limbs);
         }
-        
+
         // Input block (136 bytes of input data)
         let block_start = i * KECCAK_RATE_BYTES;
         let block_end = (block_start + KECCAK_RATE_BYTES).min(trace.input.len());
@@ -348,7 +359,7 @@ pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
         for j in block_start..block_end {
             input_block.push(M31::new(trace.input[j] as u32));
         }
-        
+
         rows.push(KeccakTraceRow {
             row_type: M31::ZERO, // 0 = absorb
             round_num: M31::new(i as u32),
@@ -359,7 +370,7 @@ pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
             intermediates: Vec::new(),
         });
     }
-    
+
     // For each round (simplified - just recording final state)
     for round in 0..KECCAK_ROUNDS {
         let state = trace.round_states[round];
@@ -368,10 +379,10 @@ pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
             let limbs = u64_to_m31_limbs(lane);
             state_limbs.extend_from_slice(&limbs);
         }
-        
+
         let rc = KECCAK_ROUND_CONSTANTS[round];
         let rc_limbs = u64_to_m31_limbs(rc);
-        
+
         rows.push(KeccakTraceRow {
             row_type: M31::new(1), // 1 = round
             round_num: M31::new(round as u32),
@@ -382,7 +393,7 @@ pub fn trace_to_rows(trace: &KeccakTrace) -> Vec<KeccakTraceRow> {
             intermediates: Vec::new(),
         });
     }
-    
+
     rows
 }
 
@@ -397,16 +408,18 @@ mod tests {
     #[test]
     fn test_keccak256_empty() {
         let hash = keccak256(b"");
-        let expected = hex::decode("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
-            .unwrap();
+        let expected =
+            hex::decode("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+                .unwrap();
         assert_eq!(&hash[..], &expected[..]);
     }
 
     #[test]
     fn test_keccak256_hello() {
         let hash = keccak256(b"hello");
-        let expected = hex::decode("1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8")
-            .unwrap();
+        let expected =
+            hex::decode("1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8")
+                .unwrap();
         assert_eq!(&hash[..], &expected[..]);
     }
 

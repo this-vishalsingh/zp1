@@ -20,8 +20,7 @@ use zp1_primitives::M31;
 
 /// BLAKE2s initialization vectors (first 32 bits of fractional parts of sqrt of first 8 primes).
 pub const BLAKE2S_IV: [u32; 8] = [
-    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
-    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 ];
 
 /// BLAKE2s sigma permutation for message scheduling.
@@ -70,7 +69,7 @@ pub mod blake3_flags {
 // ============================================================================
 
 /// A BLAKE2s G function trace row.
-/// 
+///
 /// The G function mixes four 32-bit words using two message words.
 /// Each call generates intermediate values that must satisfy constraints.
 #[derive(Clone, Debug)]
@@ -331,21 +330,21 @@ pub fn blake2s_g_trace(
 /// Evaluate G function constraints.
 pub fn evaluate_g_constraints(_row: &Blake2sGRow) -> Vec<ConstraintResult> {
     let mut results = Vec::new();
-    
+
     // For a full implementation, we would verify:
     // 1. Addition constraints with carry bits
     // 2. XOR constraints using bit decomposition
     // 3. Rotation constraints
-    
+
     // Simplified check: verify outputs match expected
     // In a real ZK circuit, we'd use algebraic constraints
-    
+
     results.push(ConstraintResult {
         constraint: BlakeConstraint::GAddABX,
         value: M31::new(0),
         satisfied: true, // Placeholder
     });
-    
+
     results
 }
 
@@ -356,62 +355,86 @@ pub fn evaluate_g_constraints(_row: &Blake2sGRow) -> Vec<ConstraintResult> {
 /// Initialize working vector for BLAKE2s compression.
 fn init_working_vector(h: &[u32; 8], t: u64, f: bool) -> [u32; 16] {
     let mut v = [0u32; 16];
-    
+
     // v[0..8] = h[0..8]
     v[..8].copy_from_slice(h);
-    
+
     // v[8..16] = IV[0..8]
     v[8..16].copy_from_slice(&BLAKE2S_IV);
-    
+
     // v[12] ^= t (low 32 bits)
     v[12] ^= t as u32;
     // v[13] ^= t >> 32 (high 32 bits)
     v[13] ^= (t >> 32) as u32;
-    
+
     // v[14] ^= 0xFFFFFFFF if final block
     if f {
         v[14] ^= 0xFFFFFFFF;
     }
-    
+
     v
 }
 
 /// Perform one round of BLAKE2s mixing.
 fn blake2s_round(v: &mut [u32; 16], m: &[u32; 16], round: usize, g_rows: &mut Vec<Blake2sGRow>) {
     let s = &BLAKE2S_SIGMA[round % 10];
-    
+
     // Column step
     let (a, b, c, d, row) = blake2s_g_trace(v[0], v[4], v[8], v[12], m[s[0]], m[s[1]]);
-    v[0] = a; v[4] = b; v[8] = c; v[12] = d;
+    v[0] = a;
+    v[4] = b;
+    v[8] = c;
+    v[12] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[1], v[5], v[9], v[13], m[s[2]], m[s[3]]);
-    v[1] = a; v[5] = b; v[9] = c; v[13] = d;
+    v[1] = a;
+    v[5] = b;
+    v[9] = c;
+    v[13] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[2], v[6], v[10], v[14], m[s[4]], m[s[5]]);
-    v[2] = a; v[6] = b; v[10] = c; v[14] = d;
+    v[2] = a;
+    v[6] = b;
+    v[10] = c;
+    v[14] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[3], v[7], v[11], v[15], m[s[6]], m[s[7]]);
-    v[3] = a; v[7] = b; v[11] = c; v[15] = d;
+    v[3] = a;
+    v[7] = b;
+    v[11] = c;
+    v[15] = d;
     g_rows.push(row);
-    
+
     // Diagonal step
     let (a, b, c, d, row) = blake2s_g_trace(v[0], v[5], v[10], v[15], m[s[8]], m[s[9]]);
-    v[0] = a; v[5] = b; v[10] = c; v[15] = d;
+    v[0] = a;
+    v[5] = b;
+    v[10] = c;
+    v[15] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[1], v[6], v[11], v[12], m[s[10]], m[s[11]]);
-    v[1] = a; v[6] = b; v[11] = c; v[12] = d;
+    v[1] = a;
+    v[6] = b;
+    v[11] = c;
+    v[12] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[2], v[7], v[8], v[13], m[s[12]], m[s[13]]);
-    v[2] = a; v[7] = b; v[8] = c; v[13] = d;
+    v[2] = a;
+    v[7] = b;
+    v[8] = c;
+    v[13] = d;
     g_rows.push(row);
-    
+
     let (a, b, c, d, row) = blake2s_g_trace(v[3], v[4], v[9], v[14], m[s[14]], m[s[15]]);
-    v[3] = a; v[4] = b; v[9] = c; v[14] = d;
+    v[3] = a;
+    v[4] = b;
+    v[9] = c;
+    v[14] = d;
     g_rows.push(row);
 }
 
@@ -434,35 +457,38 @@ pub fn blake2s_compress_trace(
     let mut v = init_working_vector(h, t, f);
     let mut g_rows = Vec::with_capacity(80);
     let mut round_states = Vec::with_capacity(10);
-    
+
     // Store initial state
     let h_in: [M31; 8] = std::array::from_fn(|i| M31::new(h[i] & 0x7FFFFFFF));
     let m_field: [M31; 16] = std::array::from_fn(|i| M31::new(m[i] & 0x7FFFFFFF));
-    
+
     // 10 rounds of mixing
     for round in 0..10 {
         blake2s_round(&mut v, m, round, &mut g_rows);
         round_states.push(std::array::from_fn(|i| M31::new(v[i] & 0x7FFFFFFF)));
     }
-    
+
     // Finalize: h'[i] = h[i] ^ v[i] ^ v[i+8]
     let mut h_out_raw = [0u32; 8];
     for i in 0..8 {
         h_out_raw[i] = h[i] ^ v[i] ^ v[i + 8];
     }
-    
+
     let h_out: [M31; 8] = std::array::from_fn(|i| M31::new(h_out_raw[i] & 0x7FFFFFFF));
-    
+
     let trace = Blake2sCompressionTrace {
         h_in,
         m: m_field,
-        t: [M31::new((t & 0x7FFFFFFF) as u32), M31::new(((t >> 32) & 0x7FFFFFFF) as u32)],
+        t: [
+            M31::new((t & 0x7FFFFFFF) as u32),
+            M31::new(((t >> 32) & 0x7FFFFFFF) as u32),
+        ],
         f: M31::new(if f { 1 } else { 0 }),
         h_out,
         g_rows,
         round_states,
     };
-    
+
     (h_out_raw, trace)
 }
 
@@ -472,23 +498,23 @@ pub fn blake2s_hash_trace(data: &[u8]) -> (Vec<u8>, Vec<Blake2sCompressionTrace>
     // XOR parameter block into h[0]
     // For simplicity, using default parameters: digest_length=32, key_length=0
     h[0] ^= 0x01010020;
-    
+
     let mut traces = Vec::new();
     let mut bytes_processed: u64 = 0;
-    
+
     // Process complete blocks
     let chunks: Vec<&[u8]> = data.chunks(64).collect();
     let num_chunks = chunks.len().max(1);
-    
+
     for (i, chunk) in chunks.iter().enumerate() {
         let is_last = i == num_chunks - 1;
-        
+
         // Pad chunk to 64 bytes
         let mut block = [0u8; 64];
         block[..chunk.len()].copy_from_slice(chunk);
-        
+
         bytes_processed += chunk.len() as u64;
-        
+
         // Convert to words
         let mut m = [0u32; 16];
         for j in 0..16 {
@@ -499,12 +525,12 @@ pub fn blake2s_hash_trace(data: &[u8]) -> (Vec<u8>, Vec<Blake2sCompressionTrace>
                 block[j * 4 + 3],
             ]);
         }
-        
+
         let (new_h, trace) = blake2s_compress_trace(&h, &m, bytes_processed, is_last);
         h = new_h;
         traces.push(trace);
     }
-    
+
     // Handle empty input
     if data.is_empty() {
         let m = [0u32; 16];
@@ -512,13 +538,13 @@ pub fn blake2s_hash_trace(data: &[u8]) -> (Vec<u8>, Vec<Blake2sCompressionTrace>
         h = new_h;
         traces.push(trace);
     }
-    
+
     // Convert hash to bytes
     let mut result = Vec::with_capacity(32);
     for word in h.iter() {
         result.extend_from_slice(&word.to_le_bytes());
     }
-    
+
     (result, traces)
 }
 
@@ -543,53 +569,133 @@ pub fn blake3_compress_trace(
     state[13] = (counter >> 32) as u32;
     state[14] = block_len;
     state[15] = flags;
-    
+
     let mut g_rows = Vec::with_capacity(56);
-    
+
     // 7 rounds
     for round in 0..7 {
         // Use BLAKE2s sigma permutation
         let s = &BLAKE2S_SIGMA[round];
-        
+
         // Column step
-        let (a, b, c, d, row) = blake2s_g_trace(state[0], state[4], state[8], state[12], block[s[0]], block[s[1]]);
-        state[0] = a; state[4] = b; state[8] = c; state[12] = d;
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[0],
+            state[4],
+            state[8],
+            state[12],
+            block[s[0]],
+            block[s[1]],
+        );
+        state[0] = a;
+        state[4] = b;
+        state[8] = c;
+        state[12] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[1], state[5], state[9], state[13], block[s[2]], block[s[3]]);
-        state[1] = a; state[5] = b; state[9] = c; state[13] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[1],
+            state[5],
+            state[9],
+            state[13],
+            block[s[2]],
+            block[s[3]],
+        );
+        state[1] = a;
+        state[5] = b;
+        state[9] = c;
+        state[13] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[2], state[6], state[10], state[14], block[s[4]], block[s[5]]);
-        state[2] = a; state[6] = b; state[10] = c; state[14] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[2],
+            state[6],
+            state[10],
+            state[14],
+            block[s[4]],
+            block[s[5]],
+        );
+        state[2] = a;
+        state[6] = b;
+        state[10] = c;
+        state[14] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[3], state[7], state[11], state[15], block[s[6]], block[s[7]]);
-        state[3] = a; state[7] = b; state[11] = c; state[15] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[3],
+            state[7],
+            state[11],
+            state[15],
+            block[s[6]],
+            block[s[7]],
+        );
+        state[3] = a;
+        state[7] = b;
+        state[11] = c;
+        state[15] = d;
         g_rows.push(row);
-        
+
         // Diagonal step
-        let (a, b, c, d, row) = blake2s_g_trace(state[0], state[5], state[10], state[15], block[s[8]], block[s[9]]);
-        state[0] = a; state[5] = b; state[10] = c; state[15] = d;
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[0],
+            state[5],
+            state[10],
+            state[15],
+            block[s[8]],
+            block[s[9]],
+        );
+        state[0] = a;
+        state[5] = b;
+        state[10] = c;
+        state[15] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[1], state[6], state[11], state[12], block[s[10]], block[s[11]]);
-        state[1] = a; state[6] = b; state[11] = c; state[12] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[1],
+            state[6],
+            state[11],
+            state[12],
+            block[s[10]],
+            block[s[11]],
+        );
+        state[1] = a;
+        state[6] = b;
+        state[11] = c;
+        state[12] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[2], state[7], state[8], state[13], block[s[12]], block[s[13]]);
-        state[2] = a; state[7] = b; state[8] = c; state[13] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[2],
+            state[7],
+            state[8],
+            state[13],
+            block[s[12]],
+            block[s[13]],
+        );
+        state[2] = a;
+        state[7] = b;
+        state[8] = c;
+        state[13] = d;
         g_rows.push(row);
-        
-        let (a, b, c, d, row) = blake2s_g_trace(state[3], state[4], state[9], state[14], block[s[14]], block[s[15]]);
-        state[3] = a; state[4] = b; state[9] = c; state[14] = d;
+
+        let (a, b, c, d, row) = blake2s_g_trace(
+            state[3],
+            state[4],
+            state[9],
+            state[14],
+            block[s[14]],
+            block[s[15]],
+        );
+        state[3] = a;
+        state[4] = b;
+        state[9] = c;
+        state[14] = d;
         g_rows.push(row);
     }
-    
+
     let cv_field: [M31; 8] = std::array::from_fn(|i| M31::new(cv[i] & 0x7FFFFFFF));
     let block_field: [M31; 16] = std::array::from_fn(|i| M31::new(block[i] & 0x7FFFFFFF));
     let output: Vec<M31> = state.iter().map(|&w| M31::new(w & 0x7FFFFFFF)).collect();
-    
+
     let trace = Blake3CompressionTrace {
         cv: cv_field,
         block: block_field,
@@ -599,7 +705,7 @@ pub fn blake3_compress_trace(
         output,
         g_rows,
     };
-    
+
     (state, trace)
 }
 
@@ -623,11 +729,11 @@ pub fn blake3_chunk_trace(
 ) -> Blake3ChunkTrace {
     let mut cv = *key;
     let mut block_traces = Vec::new();
-    
+
     // Process up to 16 blocks per chunk
     let blocks: Vec<&[u8]> = chunk.chunks(64).collect();
     let num_blocks = blocks.len().max(1);
-    
+
     for (i, block_data) in blocks.iter().enumerate() {
         let mut block_flags = flags;
         if i == 0 {
@@ -636,11 +742,11 @@ pub fn blake3_chunk_trace(
         if i == num_blocks - 1 {
             block_flags |= blake3_flags::CHUNK_END;
         }
-        
+
         // Pad block
         let mut padded = [0u8; 64];
         padded[..block_data.len()].copy_from_slice(block_data);
-        
+
         // Convert to words
         let mut block = [0u32; 16];
         for j in 0..16 {
@@ -651,7 +757,7 @@ pub fn blake3_chunk_trace(
                 padded[j * 4 + 3],
             ]);
         }
-        
+
         let (state, trace) = blake3_compress_trace(
             &cv,
             &block,
@@ -659,15 +765,15 @@ pub fn blake3_chunk_trace(
             block_data.len() as u32,
             block_flags,
         );
-        
+
         // Update CV for next block (only needed within chunk)
         if i < num_blocks - 1 {
             cv = blake3_output_cv(&state, &cv);
         }
-        
+
         block_traces.push(trace);
     }
-    
+
     // Handle empty chunk
     if chunk.is_empty() {
         let block = [0u32; 16];
@@ -675,7 +781,7 @@ pub fn blake3_chunk_trace(
         let (_state, trace) = blake3_compress_trace(&cv, &block, chunk_counter, 0, block_flags);
         block_traces.push(trace);
     }
-    
+
     // Compute output CV from last compression
     let last_state = if let Some(last_trace) = block_traces.last() {
         let mut state = [0u32; 16];
@@ -686,10 +792,10 @@ pub fn blake3_chunk_trace(
     } else {
         [0u32; 16]
     };
-    
+
     let output_cv_raw = blake3_output_cv(&last_state, &cv);
     let output_cv: [M31; 8] = std::array::from_fn(|i| M31::new(output_cv_raw[i] & 0x7FFFFFFF));
-    
+
     Blake3ChunkTrace {
         chunk_counter,
         block_traces,
@@ -701,76 +807,71 @@ pub fn blake3_chunk_trace(
 pub fn blake3_hash_trace(data: &[u8]) -> Blake3HashTrace {
     let key = BLAKE3_IV;
     let key_field: [M31; 8] = std::array::from_fn(|i| M31::new(key[i] & 0x7FFFFFFF));
-    
+
     let mut chunk_traces = Vec::new();
     let mut parent_traces = Vec::new();
     let mut cv_stack: Vec<[u32; 8]> = Vec::new();
-    
+
     // Process chunks
     let chunks: Vec<&[u8]> = data.chunks(BLAKE3_CHUNK_LEN).collect();
-    
+
     for (i, chunk_data) in chunks.iter().enumerate() {
         let chunk_trace = blake3_chunk_trace(&key, chunk_data, i as u64, 0);
-        
+
         // Get output CV
         let mut cv = [0u32; 8];
         for (j, v) in chunk_trace.output_cv.iter().enumerate() {
             cv[j] = v.value();
         }
-        
+
         chunk_traces.push(chunk_trace);
-        
+
         // Merge with existing CVs (Merkle tree construction)
         cv_stack.push(cv);
-        
+
         // Merge pairs when possible (simplified - full BLAKE3 is more complex)
         while cv_stack.len() > 1 && (cv_stack.len() & 1) == 0 {
             let right = cv_stack.pop().unwrap();
             let left = cv_stack.pop().unwrap();
-            
+
             // Create parent block from two CVs
             let mut parent_block = [0u32; 16];
             parent_block[..8].copy_from_slice(&left);
             parent_block[8..16].copy_from_slice(&right);
-            
-            let (state, trace) = blake3_compress_trace(
-                &key,
-                &parent_block,
-                0,
-                64,
-                blake3_flags::PARENT,
-            );
-            
+
+            let (state, trace) =
+                blake3_compress_trace(&key, &parent_block, 0, 64, blake3_flags::PARENT);
+
             let parent_cv = blake3_output_cv(&state, &key);
             cv_stack.push(parent_cv);
             parent_traces.push(trace);
         }
     }
-    
+
     // Handle empty input
     if data.is_empty() {
         let chunk_trace = blake3_chunk_trace(&key, &[], 0, 0);
         chunk_traces.push(chunk_trace);
     }
-    
+
     // Finalize - merge remaining CVs
     while cv_stack.len() > 1 {
         let right = cv_stack.pop().unwrap();
         let left = cv_stack.pop().unwrap_or(key);
-        
+
         let mut parent_block = [0u32; 16];
         parent_block[..8].copy_from_slice(&left);
         parent_block[8..16].copy_from_slice(&right);
-        
+
         let is_root = cv_stack.is_empty();
         let flags = blake3_flags::PARENT | if is_root { blake3_flags::ROOT } else { 0 };
-        
+
         let (state, trace) = blake3_compress_trace(&key, &parent_block, 0, 64, flags);
         let parent_cv = blake3_output_cv(&state, &key);
         cv_stack.push(parent_cv);
         parent_traces.push(trace);
     }
-    
+
     // Get final output
     let output: Vec<M31> = if let Some(cv) = cv_stack.first() {
         cv.iter().map(|&w| M31::new(w & 0x7FFFFFFF)).collect()
@@ -779,7 +880,7 @@ pub fn blake3_hash_trace(data: &[u8]) -> Blake3HashTrace {
     } else {
         key_field.to_vec()
     };
-    
+
     Blake3HashTrace {
         key: key_field,
         chunk_traces,
@@ -835,17 +936,40 @@ pub fn delegate_blake2s_compress(
     f: bool,
 ) -> BlakeDelegationCall {
     let (h_out, trace) = blake2s_compress_trace(h, m, t, f);
-    
+
     // Compute fingerprints using random linear combination
     let input_fp = compute_fingerprint_u32(&[
-        h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
-        m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
-        m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15],
-        t as u32, (t >> 32) as u32, if f { 1 } else { 0 },
+        h[0],
+        h[1],
+        h[2],
+        h[3],
+        h[4],
+        h[5],
+        h[6],
+        h[7],
+        m[0],
+        m[1],
+        m[2],
+        m[3],
+        m[4],
+        m[5],
+        m[6],
+        m[7],
+        m[8],
+        m[9],
+        m[10],
+        m[11],
+        m[12],
+        m[13],
+        m[14],
+        m[15],
+        t as u32,
+        (t >> 32) as u32,
+        if f { 1 } else { 0 },
     ]);
-    
+
     let output_fp = compute_fingerprint_u32(&h_out);
-    
+
     BlakeDelegationCall {
         op_type: BlakeDelegationType::Blake2sCompress,
         input_fingerprint: input_fp,
@@ -857,10 +981,10 @@ pub fn delegate_blake2s_compress(
 /// Create a BLAKE2s hash delegation call.
 pub fn delegate_blake2s_hash(data: &[u8]) -> BlakeDelegationCall {
     let (hash, traces) = blake2s_hash_trace(data);
-    
+
     let input_fp = compute_fingerprint_bytes(data);
     let output_fp = compute_fingerprint_bytes(&hash);
-    
+
     BlakeDelegationCall {
         op_type: BlakeDelegationType::Blake2sHash,
         input_fingerprint: input_fp,
@@ -878,16 +1002,40 @@ pub fn delegate_blake3_compress(
     flags: u32,
 ) -> BlakeDelegationCall {
     let (state, trace) = blake3_compress_trace(cv, block, counter, block_len, flags);
-    
+
     let input_fp = compute_fingerprint_u32(&[
-        cv[0], cv[1], cv[2], cv[3], cv[4], cv[5], cv[6], cv[7],
-        block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7],
-        block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15],
-        counter as u32, (counter >> 32) as u32, block_len, flags,
+        cv[0],
+        cv[1],
+        cv[2],
+        cv[3],
+        cv[4],
+        cv[5],
+        cv[6],
+        cv[7],
+        block[0],
+        block[1],
+        block[2],
+        block[3],
+        block[4],
+        block[5],
+        block[6],
+        block[7],
+        block[8],
+        block[9],
+        block[10],
+        block[11],
+        block[12],
+        block[13],
+        block[14],
+        block[15],
+        counter as u32,
+        (counter >> 32) as u32,
+        block_len,
+        flags,
     ]);
-    
+
     let output_fp = compute_fingerprint_u32(&state);
-    
+
     BlakeDelegationCall {
         op_type: BlakeDelegationType::Blake3Compress,
         input_fingerprint: input_fp,
@@ -899,9 +1047,9 @@ pub fn delegate_blake3_compress(
 /// Create a BLAKE3 hash delegation call.
 pub fn delegate_blake3_hash(data: &[u8]) -> BlakeDelegationCall {
     let trace = blake3_hash_trace(data);
-    
+
     let input_fp = compute_fingerprint_bytes(data);
-    
+
     // Output fingerprint from final hash
     let output_fp = {
         let mut hash_words = [0u32; 8];
@@ -910,7 +1058,7 @@ pub fn delegate_blake3_hash(data: &[u8]) -> BlakeDelegationCall {
         }
         compute_fingerprint_u32(&hash_words)
     };
-    
+
     BlakeDelegationCall {
         op_type: BlakeDelegationType::Blake3Hash,
         input_fingerprint: input_fp,
@@ -924,11 +1072,11 @@ fn compute_fingerprint_u32(values: &[u32]) -> M31 {
     // Use a simple hash-based random coefficient
     let mut acc = M31::new(1);
     let alpha = M31::new(0x12345678); // Fixed "random" coefficient for determinism
-    
+
     for &v in values {
         acc = acc * alpha + M31::new(v & 0x7FFFFFFF);
     }
-    
+
     acc
 }
 
@@ -936,17 +1084,17 @@ fn compute_fingerprint_u32(values: &[u32]) -> M31 {
 fn compute_fingerprint_bytes(data: &[u8]) -> M31 {
     let mut acc = M31::new(1);
     let alpha = M31::new(0x12345678);
-    
+
     for chunk in data.chunks(4) {
         let mut bytes = [0u8; 4];
         bytes[..chunk.len()].copy_from_slice(chunk);
         let word = u32::from_le_bytes(bytes);
         acc = acc * alpha + M31::new(word & 0x7FFFFFFF);
     }
-    
+
     // Include length to distinguish different-length inputs with same prefix
     acc = acc * alpha + M31::new(data.len() as u32);
-    
+
     acc
 }
 
@@ -965,27 +1113,27 @@ impl BlakeAir {
     pub fn blake2s_compress() -> Self {
         Self { num_g_rows: 80 }
     }
-    
+
     /// Create AIR for a BLAKE3 compression (56 G rows).
     pub fn blake3_compress() -> Self {
         Self { num_g_rows: 56 }
     }
-    
+
     /// Number of trace columns needed.
     pub fn num_columns(&self) -> usize {
         // Per G row: 10 main values + 8 intermediates + 4 carries + 128 XOR bits
         // Simplified: just main values and intermediates
         self.num_g_rows * 18
     }
-    
+
     /// Evaluate constraints on a trace.
     pub fn evaluate(&self, g_rows: &[Blake2sGRow]) -> Vec<ConstraintResult> {
         let mut results = Vec::new();
-        
+
         for row in g_rows {
             results.extend(evaluate_g_constraints(row));
         }
-        
+
         results
     }
 }
@@ -1001,120 +1149,115 @@ mod tests {
     #[test]
     fn test_blake2s_g() {
         let (a, b, _c, _d, row) = blake2s_g_trace(
-            0x6A09E667,
-            0xBB67AE85,
-            0x3C6EF372,
-            0xA54FF53A,
-            0x00000000,
-            0x00000000,
+            0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x00000000, 0x00000000,
         );
 
         // Values should change after G function
         assert_ne!(a, 0x6A09E667);
         assert_ne!(b, 0xBB67AE85);
-        
+
         // Should have 7 intermediates (steps 1-7, step 8 goes to output)
         assert_eq!(row.intermediates.len(), 7);
-        
+
         // Should have 4 carries
         assert_eq!(row.carries.len(), 4);
-        
+
         // Should have 128 XOR bits (4 XORs * 32 bits)
         assert_eq!(row.xor_bits.len(), 128);
     }
-    
+
     #[test]
     fn test_blake2s_compress() {
         let h = BLAKE2S_IV;
         let m = [0u32; 16];
-        
+
         let (h_out, trace) = blake2s_compress_trace(&h, &m, 0, false);
-        
+
         // Output should differ from input
         assert_ne!(h_out, h);
-        
+
         // Should have 80 G rows (10 rounds * 8 G calls)
         assert_eq!(trace.g_rows.len(), 80);
-        
+
         // Should have 10 round states
         assert_eq!(trace.round_states.len(), 10);
     }
-    
+
     #[test]
     fn test_blake2s_hash_empty() {
         let (hash, traces) = blake2s_hash_trace(&[]);
-        
+
         // Should produce 32-byte hash
         assert_eq!(hash.len(), 32);
-        
+
         // Should have one compression trace
         assert_eq!(traces.len(), 1);
     }
-    
+
     #[test]
     fn test_blake2s_hash_hello() {
         let data = b"hello";
         let (hash, traces) = blake2s_hash_trace(data);
-        
+
         assert_eq!(hash.len(), 32);
         assert_eq!(traces.len(), 1);
-        
+
         // Hash should be deterministic
         let (hash2, _) = blake2s_hash_trace(data);
         assert_eq!(hash, hash2);
     }
-    
+
     #[test]
     fn test_blake2s_hash_multiblock() {
         // Data longer than one block (64 bytes)
         let data = vec![0xABu8; 100];
         let (hash, traces) = blake2s_hash_trace(&data);
-        
+
         assert_eq!(hash.len(), 32);
         assert_eq!(traces.len(), 2); // Should need 2 blocks
     }
-    
+
     #[test]
     fn test_blake3_compress() {
         let cv = BLAKE3_IV;
         let block = [0u32; 16];
-        
+
         let (state, trace) = blake3_compress_trace(&cv, &block, 0, 0, 0);
-        
+
         // State should be 16 words
         assert_eq!(state.len(), 16);
-        
+
         // Should have 56 G rows (7 rounds * 8 G calls)
         assert_eq!(trace.g_rows.len(), 56);
     }
-    
+
     #[test]
     fn test_blake3_hash_empty() {
         let trace = blake3_hash_trace(&[]);
-        
+
         // Should have output
         assert!(!trace.output.is_empty());
-        
+
         // Should have at least one chunk trace
         assert!(!trace.chunk_traces.is_empty());
     }
-    
+
     #[test]
     fn test_blake3_hash_hello() {
         let data = b"hello world";
         let trace = blake3_hash_trace(data);
-        
+
         assert_eq!(trace.output.len(), 8);
         assert_eq!(trace.chunk_traces.len(), 1);
     }
-    
+
     #[test]
     fn test_delegation_blake2s() {
         let call = delegate_blake2s_hash(b"test data");
-        
+
         assert_eq!(call.op_type, BlakeDelegationType::Blake2sHash);
         assert_ne!(call.input_fingerprint, call.output_fingerprint);
-        
+
         match call.trace {
             BlakeDelegationTrace::Blake2sHash(traces) => {
                 assert!(!traces.is_empty());
@@ -1122,13 +1265,13 @@ mod tests {
             _ => panic!("Wrong trace type"),
         }
     }
-    
+
     #[test]
     fn test_delegation_blake3() {
         let call = delegate_blake3_hash(b"test data");
-        
+
         assert_eq!(call.op_type, BlakeDelegationType::Blake3Hash);
-        
+
         match call.trace {
             BlakeDelegationTrace::Blake3Hash(trace) => {
                 assert!(!trace.chunk_traces.is_empty());
@@ -1136,7 +1279,7 @@ mod tests {
             _ => panic!("Wrong trace type"),
         }
     }
-    
+
     #[test]
     fn test_fingerprint_deterministic() {
         let data = b"hello";
@@ -1144,22 +1287,22 @@ mod tests {
         let fp2 = compute_fingerprint_bytes(data);
         assert_eq!(fp1, fp2);
     }
-    
+
     #[test]
     fn test_fingerprint_different_inputs() {
         let fp1 = compute_fingerprint_bytes(b"hello");
         let fp2 = compute_fingerprint_bytes(b"world");
         assert_ne!(fp1, fp2);
     }
-    
+
     #[test]
     fn test_blake_air_columns() {
         let air_2s = BlakeAir::blake2s_compress();
         let air_3 = BlakeAir::blake3_compress();
-        
+
         // BLAKE2s has more columns (more rounds)
         assert!(air_2s.num_columns() > air_3.num_columns());
-        
+
         assert_eq!(air_2s.num_g_rows, 80);
         assert_eq!(air_3.num_g_rows, 56);
     }

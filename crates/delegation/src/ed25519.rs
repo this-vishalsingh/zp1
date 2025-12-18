@@ -47,8 +47,8 @@
 //! a0 = 0 (valid) or 1 (invalid)
 //! ```
 
-use zp1_primitives::M31;
 use serde::{Deserialize, Serialize};
+use zp1_primitives::M31;
 
 /// Ed25519 verify syscall number.
 pub const ED25519_VERIFY_SYSCALL: u32 = 0x2001;
@@ -127,18 +127,18 @@ pub fn ed25519_verify(message: &[u8], public_key: &[u8; 32], signature: &[u8; 64
 
 #[cfg(feature = "ed25519")]
 fn ed25519_verify_native(message: &[u8], public_key: &[u8; 32], signature: &[u8; 64]) -> bool {
-    use ed25519_dalek::{Signature, VerifyingKey, Verifier};
-    
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
     let verifying_key = match VerifyingKey::from_bytes(public_key) {
         Ok(key) => key,
         Err(_) => return false,
     };
-    
+
     let sig = match Signature::from_slice(signature) {
         Ok(s) => s,
         Err(_) => return false,
     };
-    
+
     verifying_key.verify(message, &sig).is_ok()
 }
 
@@ -159,16 +159,16 @@ pub fn generate_ed25519_trace(
     let mut signature_s = [0u8; 32];
     signature_r.copy_from_slice(&signature[..32]);
     signature_s.copy_from_slice(&signature[32..]);
-    
+
     let valid = ed25519_verify(message, public_key, signature);
-    
+
     // Compute intermediate hash: SHA512(R || A || M)
     let hash = compute_ed25519_hash(&signature_r, public_key, message);
     let mut hash_lo = [0u8; 32];
     let mut hash_hi = [0u8; 32];
     hash_lo.copy_from_slice(&hash[..32]);
     hash_hi.copy_from_slice(&hash[32..]);
-    
+
     Ed25519Trace {
         message: message.to_vec(),
         public_key: *public_key,
@@ -182,13 +182,13 @@ pub fn generate_ed25519_trace(
 
 /// Compute SHA512(R || A || M) for Ed25519.
 fn compute_ed25519_hash(r: &[u8; 32], a: &[u8; 32], m: &[u8]) -> [u8; 64] {
-    use sha2::{Sha512, Digest};
-    
+    use sha2::{Digest, Sha512};
+
     let mut hasher = Sha512::new();
     hasher.update(r);
     hasher.update(a);
     hasher.update(m);
-    
+
     let result = hasher.finalize();
     let mut hash = [0u8; 64];
     hash.copy_from_slice(&result);
@@ -199,13 +199,13 @@ fn compute_ed25519_hash(r: &[u8; 32], a: &[u8; 32], m: &[u8]) -> [u8; 64] {
 pub fn bytes32_to_m31_limbs(bytes: &[u8; 32]) -> Vec<M31> {
     let mut limbs = Vec::with_capacity(9);
     let mut bit_pos = 0usize;
-    
+
     for _ in 0..9 {
         if bit_pos >= 256 {
             limbs.push(M31::ZERO);
             continue;
         }
-        
+
         let mut value = 0u32;
         for i in 0..31 {
             let abs_bit = bit_pos + i;
@@ -217,11 +217,11 @@ pub fn bytes32_to_m31_limbs(bytes: &[u8; 32]) -> Vec<M31> {
             let bit = (bytes[byte_idx] >> bit_idx) & 1;
             value |= (bit as u32) << i;
         }
-        
+
         limbs.push(M31::new(value));
         bit_pos += 31;
     }
-    
+
     limbs
 }
 
@@ -229,13 +229,13 @@ pub fn bytes32_to_m31_limbs(bytes: &[u8; 32]) -> Vec<M31> {
 pub fn bytes64_to_m31_limbs(bytes: &[u8; 64]) -> Vec<M31> {
     let mut limbs = Vec::with_capacity(17);
     let mut bit_pos = 0usize;
-    
+
     for _ in 0..17 {
         if bit_pos >= 512 {
             limbs.push(M31::ZERO);
             continue;
         }
-        
+
         let mut value = 0u32;
         for i in 0..31 {
             let abs_bit = bit_pos + i;
@@ -247,11 +247,11 @@ pub fn bytes64_to_m31_limbs(bytes: &[u8; 64]) -> Vec<M31> {
             let bit = (bytes[byte_idx] >> bit_idx) & 1;
             value |= (bit as u32) << i;
         }
-        
+
         limbs.push(M31::new(value));
         bit_pos += 31;
     }
-    
+
     limbs
 }
 
@@ -267,7 +267,7 @@ fn combine_hash(lo: &[u8; 32], hi: &[u8; 32]) -> [u8; 64] {
 pub fn trace_to_rows(trace: &Ed25519Trace) -> Vec<Ed25519TraceRow> {
     let mut rows = Vec::new();
     let hash = combine_hash(&trace.hash_lo, &trace.hash_hi);
-    
+
     // Row 1: Hash computation (SHA512)
     rows.push(Ed25519TraceRow {
         row_type: M31::ZERO,
@@ -277,7 +277,7 @@ pub fn trace_to_rows(trace: &Ed25519Trace) -> Vec<Ed25519TraceRow> {
         hash_limbs: bytes64_to_m31_limbs(&hash),
         valid: M31::new(trace.valid as u32),
     });
-    
+
     // Row 2: Point decompression (A from public key)
     rows.push(Ed25519TraceRow {
         row_type: M31::new(1),
@@ -287,7 +287,7 @@ pub fn trace_to_rows(trace: &Ed25519Trace) -> Vec<Ed25519TraceRow> {
         hash_limbs: bytes64_to_m31_limbs(&hash),
         valid: M31::new(trace.valid as u32),
     });
-    
+
     // Row 3: Scalar multiplication [s]B
     rows.push(Ed25519TraceRow {
         row_type: M31::new(2),
@@ -297,7 +297,7 @@ pub fn trace_to_rows(trace: &Ed25519Trace) -> Vec<Ed25519TraceRow> {
         hash_limbs: bytes64_to_m31_limbs(&hash),
         valid: M31::new(trace.valid as u32),
     });
-    
+
     // Row 4: Final point addition/comparison
     rows.push(Ed25519TraceRow {
         row_type: M31::new(3),
@@ -307,7 +307,7 @@ pub fn trace_to_rows(trace: &Ed25519Trace) -> Vec<Ed25519TraceRow> {
         hash_limbs: bytes64_to_m31_limbs(&hash),
         valid: M31::new(trace.valid as u32),
     });
-    
+
     rows
 }
 
@@ -324,9 +324,9 @@ mod tests {
         let message = b"test message";
         let public_key = [0xAAu8; 32];
         let signature = [0xBBu8; 64];
-        
+
         let trace = generate_ed25519_trace(message, &public_key, &signature);
-        
+
         assert_eq!(trace.message, message.to_vec());
         assert_eq!(trace.public_key, public_key);
         assert_eq!(trace.signature_r, [0xBBu8; 32]);
@@ -339,7 +339,7 @@ mod tests {
     fn test_bytes32_to_limbs() {
         let mut test_bytes = [0u8; 32];
         test_bytes[0] = 0xFF;
-        
+
         let limbs = bytes32_to_m31_limbs(&test_bytes);
         assert_eq!(limbs.len(), 9);
         assert_ne!(limbs[0].as_u32(), 0);
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn test_bytes64_to_limbs() {
         let test_bytes = [0xABu8; 64];
-        
+
         let limbs = bytes64_to_m31_limbs(&test_bytes);
         assert_eq!(limbs.len(), 17);
     }
@@ -358,10 +358,10 @@ mod tests {
         let message = b"hello";
         let public_key = [0u8; 32];
         let signature = [0u8; 64];
-        
+
         let trace = generate_ed25519_trace(message, &public_key, &signature);
         let rows = trace_to_rows(&trace);
-        
+
         assert_eq!(rows.len(), 4);
         assert_eq!(rows[0].row_type, M31::ZERO);
         assert_eq!(rows[1].row_type, M31::new(1));
@@ -374,7 +374,7 @@ mod tests {
         let r = [0u8; 32];
         let a = [1u8; 32];
         let m = b"message";
-        
+
         let hash = compute_ed25519_hash(&r, &a, m);
         assert_eq!(hash.len(), 64);
         // Hash should be deterministic
