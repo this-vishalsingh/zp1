@@ -38,15 +38,15 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod io;
-pub mod syscalls;
 pub mod prelude;
+pub mod syscalls;
 
 // Re-export main items
-pub use io::{read, commit, hint, commit_slice, hint_slice};
+pub use io::{commit, commit_slice, hint, hint_slice, read};
 
 // Conditionally export riscv32-only functions
 #[cfg(target_arch = "riscv32")]
-pub use io::{read_slice, peek_input_size};
+pub use io::{peek_input_size, read_slice};
 
 pub use syscalls::*;
 
@@ -64,25 +64,25 @@ macro_rules! entry {
         #[no_mangle]
         pub extern "C" fn _start() -> ! {
             $main();
-            
+
             // Exit with code 0
             unsafe {
                 core::arch::asm!(
-                    "li a7, 0x00",  // HALT syscall
-                    "li a0, 0",      // exit code 0
+                    "li a7, 0x00", // HALT syscall
+                    "li a0, 0",    // exit code 0
                     "ecall",
                     options(noreturn)
                 );
             }
         }
-        
+
         #[panic_handler]
         fn panic(_info: &core::panic::PanicInfo) -> ! {
             // Exit with code 1 on panic
             unsafe {
                 core::arch::asm!(
-                    "li a7, 0x00",  // HALT syscall
-                    "li a0, 1",      // exit code 1
+                    "li a7, 0x00", // HALT syscall
+                    "li a0, 1",    // exit code 1
                     "ecall",
                     options(noreturn)
                 );

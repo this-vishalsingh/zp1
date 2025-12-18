@@ -56,7 +56,7 @@ pub fn read<T: for<'de> Deserialize<'de>>() -> T {
                 size = out(reg) size,
             );
         }
-        
+
         let size = size as usize;
         if size == 0 {
             panic!("read(): no input available");
@@ -64,13 +64,13 @@ pub fn read<T: for<'de> Deserialize<'de>>() -> T {
         if size > MAX_IO_BUFFER_SIZE {
             panic!("read(): input too large");
         }
-        
+
         // Step 2: Allocate buffer and read the data
         // Using a fixed-size buffer on the stack for simplicity
         // In a full implementation, this would use dynamic allocation
         let mut buffer = [0u8; MAX_IO_BUFFER_SIZE];
         let bytes_read: u32;
-        
+
         unsafe {
             core::arch::asm!(
                 "li a7, 0x02",       // READ syscall
@@ -83,12 +83,12 @@ pub fn read<T: for<'de> Deserialize<'de>>() -> T {
                 bytes_read = out(reg) bytes_read,
             );
         }
-        
+
         // Step 3: Deserialize using bincode
         let data = &buffer[..bytes_read as usize];
         bincode::deserialize(data).expect("read(): deserialization failed")
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         panic!("read() only works in zkVM guest (riscv32 target)")
@@ -114,7 +114,7 @@ pub fn read<T: for<'de> Deserialize<'de>>() -> T {
 #[cfg(target_arch = "riscv32")]
 pub fn read_slice(buffer: &mut [u8]) -> usize {
     let bytes_read: u32;
-    
+
     unsafe {
         core::arch::asm!(
             "li a7, 0x02",       // READ syscall
@@ -127,7 +127,7 @@ pub fn read_slice(buffer: &mut [u8]) -> usize {
             bytes_read = out(reg) bytes_read,
         );
     }
-    
+
     bytes_read as usize
 }
 
@@ -181,11 +181,11 @@ pub fn commit<T: Serialize>(value: &T) {
     {
         // Serialize the value using bincode
         let data = bincode::serialize(value).expect("commit(): serialization failed");
-        
+
         if data.len() > MAX_IO_BUFFER_SIZE {
             panic!("commit(): output too large");
         }
-        
+
         // Call COMMIT syscall
         unsafe {
             core::arch::asm!(
@@ -199,7 +199,7 @@ pub fn commit<T: Serialize>(value: &T) {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         let _ = value; // silence unused warning
@@ -233,7 +233,7 @@ pub fn commit_slice(data: &[u8]) {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         let _ = data;
@@ -286,11 +286,11 @@ pub fn hint<T: Serialize>(value: &T) {
         }
         // Silently ignore serialization failures - hints are optional
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         let _ = value; // silence unused warning
-        // No-op outside zkVM - hints are optional
+                       // No-op outside zkVM - hints are optional
     }
 }
 
@@ -320,7 +320,7 @@ pub fn hint_slice(data: &[u8]) {
             }
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         let _ = data; // No-op outside zkVM
@@ -348,7 +348,7 @@ pub fn print(msg: &str) {
             );
         }
     }
-    
+
     #[cfg(not(target_arch = "riscv32"))]
     {
         // For testing outside zkVM
