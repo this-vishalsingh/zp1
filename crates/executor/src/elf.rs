@@ -283,38 +283,43 @@ impl ElfLoader {
     pub fn parse(data: &[u8]) -> Result<Self, ExecutorError> {
         // Validate minimum size for ELF header
         if data.len() < ELF32_HEADER_SIZE {
-            return Err(ExecutorError::InvalidElf(
-                format!("File too small: {} bytes (need at least {})", data.len(), ELF32_HEADER_SIZE)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "File too small: {} bytes (need at least {})",
+                data.len(),
+                ELF32_HEADER_SIZE
+            )));
         }
 
         // Validate ELF magic number
         if data[0..4] != ELF_MAGIC {
-            return Err(ExecutorError::InvalidElf(
-                format!("Invalid magic: {:02x} {:02x} {:02x} {:02x}", 
-                        data[0], data[1], data[2], data[3])
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Invalid magic: {:02x} {:02x} {:02x} {:02x}",
+                data[0], data[1], data[2], data[3]
+            )));
         }
 
         // Validate 32-bit class
         if data[4] != ELFCLASS32 {
-            return Err(ExecutorError::InvalidElf(
-                format!("Not 32-bit ELF (class: {})", data[4])
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Not 32-bit ELF (class: {})",
+                data[4]
+            )));
         }
 
         // Validate little-endian encoding
         if data[5] != ELFDATA2LSB {
-            return Err(ExecutorError::InvalidElf(
-                format!("Not little-endian (encoding: {})", data[5])
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Not little-endian (encoding: {})",
+                data[5]
+            )));
         }
 
         // Validate ELF version in e_ident
         if data[6] != EV_CURRENT {
-            return Err(ExecutorError::InvalidElf(
-                format!("Unsupported ELF version in ident: {}", data[6])
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Unsupported ELF version in ident: {}",
+                data[6]
+            )));
         }
 
         // Parse header fields
@@ -324,23 +329,26 @@ impl ElfLoader {
 
         // Validate ELF type (executable or shared object)
         if e_type != ET_EXEC && e_type != ET_DYN {
-            return Err(ExecutorError::InvalidElf(
-                format!("Not an executable (type: {})", e_type)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Not an executable (type: {})",
+                e_type
+            )));
         }
 
         // Validate machine type
         if e_machine != EM_RISCV {
-            return Err(ExecutorError::InvalidElf(
-                format!("Not RISC-V (machine: {})", e_machine)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Not RISC-V (machine: {})",
+                e_machine
+            )));
         }
 
         // Validate version
         if e_version != 1 {
-            return Err(ExecutorError::InvalidElf(
-                format!("Unsupported ELF version: {}", e_version)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Unsupported ELF version: {}",
+                e_version
+            )));
         }
 
         // Parse full header
@@ -362,9 +370,10 @@ impl ElfLoader {
 
         // Validate header size
         if header.ehsize as usize != ELF32_HEADER_SIZE {
-            return Err(ExecutorError::InvalidElf(
-                format!("Invalid ELF header size: {}", header.ehsize)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Invalid ELF header size: {}",
+                header.ehsize
+            )));
         }
 
         // Parse program headers
@@ -392,8 +401,8 @@ impl ElfLoader {
 
     /// Parse program headers from ELF data.
     fn parse_program_headers(
-        data: &[u8], 
-        header: &Elf32Header
+        data: &[u8],
+        header: &Elf32Header,
     ) -> Result<Vec<Elf32ProgramHeader>, ExecutorError> {
         let mut headers = Vec::with_capacity(header.phnum as usize);
         let phoff = header.phoff as usize;
@@ -401,29 +410,71 @@ impl ElfLoader {
 
         // Validate program header entry size
         if phentsize < ELF32_PHDR_SIZE {
-            return Err(ExecutorError::InvalidElf(
-                format!("Program header size too small: {}", phentsize)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Program header size too small: {}",
+                phentsize
+            )));
         }
 
         for i in 0..header.phnum as usize {
             let offset = phoff + i * phentsize;
-            
+
             if offset + ELF32_PHDR_SIZE > data.len() {
-                return Err(ExecutorError::InvalidElf(
-                    format!("Program header {} out of bounds (offset {})", i, offset)
-                ));
+                return Err(ExecutorError::InvalidElf(format!(
+                    "Program header {} out of bounds (offset {})",
+                    i, offset
+                )));
             }
 
             let ph = Elf32ProgramHeader {
-                p_type: u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]),
-                p_offset: u32::from_le_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]),
-                p_vaddr: u32::from_le_bytes([data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11]]),
-                p_paddr: u32::from_le_bytes([data[offset + 12], data[offset + 13], data[offset + 14], data[offset + 15]]),
-                p_filesz: u32::from_le_bytes([data[offset + 16], data[offset + 17], data[offset + 18], data[offset + 19]]),
-                p_memsz: u32::from_le_bytes([data[offset + 20], data[offset + 21], data[offset + 22], data[offset + 23]]),
-                p_flags: u32::from_le_bytes([data[offset + 24], data[offset + 25], data[offset + 26], data[offset + 27]]),
-                p_align: u32::from_le_bytes([data[offset + 28], data[offset + 29], data[offset + 30], data[offset + 31]]),
+                p_type: u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]),
+                p_offset: u32::from_le_bytes([
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
+                ]),
+                p_vaddr: u32::from_le_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                ]),
+                p_paddr: u32::from_le_bytes([
+                    data[offset + 12],
+                    data[offset + 13],
+                    data[offset + 14],
+                    data[offset + 15],
+                ]),
+                p_filesz: u32::from_le_bytes([
+                    data[offset + 16],
+                    data[offset + 17],
+                    data[offset + 18],
+                    data[offset + 19],
+                ]),
+                p_memsz: u32::from_le_bytes([
+                    data[offset + 20],
+                    data[offset + 21],
+                    data[offset + 22],
+                    data[offset + 23],
+                ]),
+                p_flags: u32::from_le_bytes([
+                    data[offset + 24],
+                    data[offset + 25],
+                    data[offset + 26],
+                    data[offset + 27],
+                ]),
+                p_align: u32::from_le_bytes([
+                    data[offset + 28],
+                    data[offset + 29],
+                    data[offset + 30],
+                    data[offset + 31],
+                ]),
             };
 
             headers.push(ph);
@@ -435,7 +486,7 @@ impl ElfLoader {
     /// Parse section headers from ELF data.
     fn parse_section_headers(
         data: &[u8],
-        header: &Elf32Header
+        header: &Elf32Header,
     ) -> Result<Vec<Elf32SectionHeader>, ExecutorError> {
         // Section headers are optional
         if header.shoff == 0 || header.shnum == 0 {
@@ -448,9 +499,10 @@ impl ElfLoader {
 
         // Validate section header entry size
         if shentsize < ELF32_SHDR_SIZE {
-            return Err(ExecutorError::InvalidElf(
-                format!("Section header size too small: {}", shentsize)
-            ));
+            return Err(ExecutorError::InvalidElf(format!(
+                "Section header size too small: {}",
+                shentsize
+            )));
         }
 
         for i in 0..header.shnum as usize {
@@ -462,16 +514,66 @@ impl ElfLoader {
             }
 
             let sh = Elf32SectionHeader {
-                sh_name: u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]),
-                sh_type: u32::from_le_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]),
-                sh_flags: u32::from_le_bytes([data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11]]),
-                sh_addr: u32::from_le_bytes([data[offset + 12], data[offset + 13], data[offset + 14], data[offset + 15]]),
-                sh_offset: u32::from_le_bytes([data[offset + 16], data[offset + 17], data[offset + 18], data[offset + 19]]),
-                sh_size: u32::from_le_bytes([data[offset + 20], data[offset + 21], data[offset + 22], data[offset + 23]]),
-                sh_link: u32::from_le_bytes([data[offset + 24], data[offset + 25], data[offset + 26], data[offset + 27]]),
-                sh_info: u32::from_le_bytes([data[offset + 28], data[offset + 29], data[offset + 30], data[offset + 31]]),
-                sh_addralign: u32::from_le_bytes([data[offset + 32], data[offset + 33], data[offset + 34], data[offset + 35]]),
-                sh_entsize: u32::from_le_bytes([data[offset + 36], data[offset + 37], data[offset + 38], data[offset + 39]]),
+                sh_name: u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]),
+                sh_type: u32::from_le_bytes([
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
+                ]),
+                sh_flags: u32::from_le_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                ]),
+                sh_addr: u32::from_le_bytes([
+                    data[offset + 12],
+                    data[offset + 13],
+                    data[offset + 14],
+                    data[offset + 15],
+                ]),
+                sh_offset: u32::from_le_bytes([
+                    data[offset + 16],
+                    data[offset + 17],
+                    data[offset + 18],
+                    data[offset + 19],
+                ]),
+                sh_size: u32::from_le_bytes([
+                    data[offset + 20],
+                    data[offset + 21],
+                    data[offset + 22],
+                    data[offset + 23],
+                ]),
+                sh_link: u32::from_le_bytes([
+                    data[offset + 24],
+                    data[offset + 25],
+                    data[offset + 26],
+                    data[offset + 27],
+                ]),
+                sh_info: u32::from_le_bytes([
+                    data[offset + 28],
+                    data[offset + 29],
+                    data[offset + 30],
+                    data[offset + 31],
+                ]),
+                sh_addralign: u32::from_le_bytes([
+                    data[offset + 32],
+                    data[offset + 33],
+                    data[offset + 34],
+                    data[offset + 35],
+                ]),
+                sh_entsize: u32::from_le_bytes([
+                    data[offset + 36],
+                    data[offset + 37],
+                    data[offset + 38],
+                    data[offset + 39],
+                ]),
             };
 
             headers.push(sh);
@@ -484,7 +586,7 @@ impl ElfLoader {
     fn load_section_strtab(
         data: &[u8],
         header: &Elf32Header,
-        sections: &[Elf32SectionHeader]
+        sections: &[Elf32SectionHeader],
     ) -> Option<Vec<u8>> {
         let idx = header.shstrndx as usize;
         if idx >= sections.len() {
@@ -498,7 +600,7 @@ impl ElfLoader {
 
         let start = strtab.sh_offset as usize;
         let size = strtab.sh_size as usize;
-        
+
         if start + size <= data.len() {
             Some(data[start..start + size].to_vec())
         } else {
@@ -509,10 +611,11 @@ impl ElfLoader {
     /// Parse symbol table from section headers.
     fn parse_symbol_table(
         data: &[u8],
-        sections: &[Elf32SectionHeader]
+        sections: &[Elf32SectionHeader],
     ) -> (Vec<Elf32Symbol>, Option<Vec<u8>>) {
         // Find symbol table section (.symtab or .dynsym)
-        let symtab = sections.iter()
+        let symtab = sections
+            .iter()
             .find(|s| s.sh_type == SHT_SYMTAB || s.sh_type == SHT_DYNSYM);
 
         let symtab = match symtab {
@@ -539,10 +642,10 @@ impl ElfLoader {
         let mut symbols = Vec::new();
         let start = symtab.sh_offset as usize;
         let size = symtab.sh_size as usize;
-        let entsize = if symtab.sh_entsize > 0 { 
-            symtab.sh_entsize as usize 
-        } else { 
-            ELF32_SYM_SIZE 
+        let entsize = if symtab.sh_entsize > 0 {
+            symtab.sh_entsize as usize
+        } else {
+            ELF32_SYM_SIZE
         };
 
         if entsize < ELF32_SYM_SIZE || start + size > data.len() {
@@ -557,9 +660,24 @@ impl ElfLoader {
             }
 
             let sym = Elf32Symbol {
-                st_name: u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]),
-                st_value: u32::from_le_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]),
-                st_size: u32::from_le_bytes([data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11]]),
+                st_name: u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]),
+                st_value: u32::from_le_bytes([
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
+                ]),
+                st_size: u32::from_le_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                ]),
                 st_info: data[offset + 12],
                 st_other: data[offset + 13],
                 st_shndx: u16::from_le_bytes([data[offset + 14], data[offset + 15]]),
@@ -578,7 +696,9 @@ impl ElfLoader {
 
     /// Get all loadable segments (PT_LOAD).
     pub fn loadable_segments(&self) -> impl Iterator<Item = &Elf32ProgramHeader> {
-        self.program_headers.iter().filter(|ph| ph.p_type == PT_LOAD)
+        self.program_headers
+            .iter()
+            .filter(|ph| ph.p_type == PT_LOAD)
     }
 
     /// Load the ELF into memory.
@@ -601,16 +721,18 @@ impl ElfLoader {
 
             // Validate file bounds
             if file_size > 0 && file_offset.saturating_add(file_size) > self.data.len() {
-                return Err(ExecutorError::InvalidElf(
-                    format!("Segment at 0x{:08x} data out of bounds", mem_addr)
-                ));
+                return Err(ExecutorError::InvalidElf(format!(
+                    "Segment at 0x{:08x} data out of bounds",
+                    mem_addr
+                )));
             }
 
             // Validate memory size is at least file size
             if mem_size < file_size {
-                return Err(ExecutorError::InvalidElf(
-                    format!("Segment at 0x{:08x} has memsz < filesz", mem_addr)
-                ));
+                return Err(ExecutorError::InvalidElf(format!(
+                    "Segment at 0x{:08x} has memsz < filesz",
+                    mem_addr
+                )));
             }
 
             // Load file data into memory
@@ -682,13 +804,14 @@ impl ElfLoader {
         if start >= strtab.len() {
             return None;
         }
-        
+
         // Find null terminator
-        let end = strtab[start..].iter()
+        let end = strtab[start..]
+            .iter()
             .position(|&b| b == 0)
             .map(|pos| start + pos)
             .unwrap_or(strtab.len());
-        
+
         std::str::from_utf8(&strtab[start..end]).ok()
     }
 
@@ -700,7 +823,8 @@ impl ElfLoader {
             return None;
         }
 
-        let end = strtab[start..].iter()
+        let end = strtab[start..]
+            .iter()
             .position(|&b| b == 0)
             .map(|pos| start + pos)
             .unwrap_or(strtab.len());
@@ -710,7 +834,8 @@ impl ElfLoader {
 
     /// Find a symbol by name.
     pub fn find_symbol(&self, name: &str) -> Option<&Elf32Symbol> {
-        self.symbols.iter()
+        self.symbols
+            .iter()
             .find(|s| self.symbol_name(s.st_name) == Some(name))
     }
 
@@ -815,16 +940,16 @@ pub mod symbol_type {
 pub fn build_test_elf(code: &[u8], entry: u32, load_addr: u32) -> Vec<u8> {
     // Align code segment to 4 bytes
     let code_padded_len = (code.len() + 3) & !3;
-    
+
     let mut elf = Vec::with_capacity(ELF32_HEADER_SIZE + ELF32_PHDR_SIZE + code_padded_len);
-    
+
     // ELF header (52 bytes)
-    elf.extend_from_slice(&ELF_MAGIC);           // e_ident[0..4]: Magic
-    elf.push(ELFCLASS32);                        // e_ident[4]: Class (32-bit)
-    elf.push(ELFDATA2LSB);                       // e_ident[5]: Data (little-endian)
-    elf.push(EV_CURRENT);                        // e_ident[6]: Version
-    elf.push(0);                                 // e_ident[7]: OS/ABI (SYSV)
-    elf.extend_from_slice(&[0u8; 8]);            // e_ident[8..16]: Padding
+    elf.extend_from_slice(&ELF_MAGIC); // e_ident[0..4]: Magic
+    elf.push(ELFCLASS32); // e_ident[4]: Class (32-bit)
+    elf.push(ELFDATA2LSB); // e_ident[5]: Data (little-endian)
+    elf.push(EV_CURRENT); // e_ident[6]: Version
+    elf.push(0); // e_ident[7]: OS/ABI (SYSV)
+    elf.extend_from_slice(&[0u8; 8]); // e_ident[8..16]: Padding
     elf.extend_from_slice(&ET_EXEC.to_le_bytes()); // e_type: Executable
     elf.extend_from_slice(&EM_RISCV.to_le_bytes()); // e_machine: RISC-V
     elf.extend_from_slice(&1u32.to_le_bytes()); // e_version
@@ -838,7 +963,7 @@ pub fn build_test_elf(code: &[u8], entry: u32, load_addr: u32) -> Vec<u8> {
     elf.extend_from_slice(&(ELF32_SHDR_SIZE as u16).to_le_bytes()); // e_shentsize
     elf.extend_from_slice(&0u16.to_le_bytes()); // e_shnum (no sections)
     elf.extend_from_slice(&0u16.to_le_bytes()); // e_shstrndx
-    
+
     // Program header (32 bytes)
     let code_offset = ELF32_HEADER_SIZE + ELF32_PHDR_SIZE;
     elf.extend_from_slice(&PT_LOAD.to_le_bytes()); // p_type
@@ -849,24 +974,24 @@ pub fn build_test_elf(code: &[u8], entry: u32, load_addr: u32) -> Vec<u8> {
     elf.extend_from_slice(&(code.len() as u32).to_le_bytes()); // p_memsz
     elf.extend_from_slice(&(segment_flags::PF_R | segment_flags::PF_X).to_le_bytes()); // p_flags
     elf.extend_from_slice(&4u32.to_le_bytes()); // p_align
-    
+
     // Code segment
     elf.extend_from_slice(code);
-    
+
     // Pad to 4-byte alignment
     while elf.len() % 4 != 0 {
         elf.push(0);
     }
-    
+
     elf
 }
 
 /// Build an ELF with multiple segments (code + data + BSS) for testing.
 pub fn build_test_elf_with_data(
-    code: &[u8], 
+    code: &[u8],
     data: &[u8],
     bss_size: u32,
-    entry: u32, 
+    entry: u32,
     code_addr: u32,
     data_addr: u32,
 ) -> Vec<u8> {
@@ -874,9 +999,9 @@ pub fn build_test_elf_with_data(
     let phdrs_size = num_phdrs * ELF32_PHDR_SIZE;
     let code_offset = ELF32_HEADER_SIZE + phdrs_size;
     let data_offset = code_offset + ((code.len() + 3) & !3); // Aligned
-    
+
     let mut elf = Vec::new();
-    
+
     // ELF header
     elf.extend_from_slice(&ELF_MAGIC);
     elf.push(ELFCLASS32);
@@ -897,7 +1022,7 @@ pub fn build_test_elf_with_data(
     elf.extend_from_slice(&(ELF32_SHDR_SIZE as u16).to_le_bytes());
     elf.extend_from_slice(&0u16.to_le_bytes());
     elf.extend_from_slice(&0u16.to_le_bytes());
-    
+
     // Program header 1: Code (PT_LOAD, R+X)
     elf.extend_from_slice(&PT_LOAD.to_le_bytes());
     elf.extend_from_slice(&(code_offset as u32).to_le_bytes());
@@ -907,7 +1032,7 @@ pub fn build_test_elf_with_data(
     elf.extend_from_slice(&(code.len() as u32).to_le_bytes());
     elf.extend_from_slice(&(segment_flags::PF_R | segment_flags::PF_X).to_le_bytes());
     elf.extend_from_slice(&4u32.to_le_bytes());
-    
+
     // Program header 2: Data + BSS (PT_LOAD, R+W)
     let memsz = data.len() as u32 + bss_size;
     elf.extend_from_slice(&PT_LOAD.to_le_bytes());
@@ -918,16 +1043,16 @@ pub fn build_test_elf_with_data(
     elf.extend_from_slice(&memsz.to_le_bytes()); // memsz (includes BSS)
     elf.extend_from_slice(&(segment_flags::PF_R | segment_flags::PF_W).to_le_bytes());
     elf.extend_from_slice(&4u32.to_le_bytes());
-    
+
     // Code segment
     elf.extend_from_slice(code);
     while elf.len() < data_offset {
         elf.push(0);
     }
-    
+
     // Data segment
     elf.extend_from_slice(data);
-    
+
     elf
 }
 
@@ -946,10 +1071,10 @@ mod tests {
             0x93, 0x00, 0xa0, 0x02, // addi x1, x0, 42
             0x73, 0x00, 0x00, 0x00, // ecall
         ];
-        
+
         let elf_data = build_test_elf(&code, 0x1000, 0x1000);
         let loader = ElfLoader::parse(&elf_data).expect("Failed to parse ELF");
-        
+
         assert_eq!(loader.entry_point(), 0x1000);
         assert_eq!(loader.loadable_segments().count(), 1);
         assert_eq!(loader.header().e_type, ET_EXEC);
@@ -962,15 +1087,15 @@ mod tests {
             0x93, 0x00, 0xa0, 0x02, // addi x1, x0, 42
             0x73, 0x00, 0x00, 0x00, // ecall
         ];
-        
+
         let elf_data = build_test_elf(&code, 0x1000, 0x1000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let mut memory = Memory::with_default_size();
         let entry = loader.load_into_memory(&mut memory).unwrap();
-        
+
         assert_eq!(entry, 0x1000);
-        
+
         // Verify code was loaded
         let instr = memory.read_u32(0x1000).unwrap();
         assert_eq!(instr, 0x02a00093); // addi x1, x0, 42
@@ -987,8 +1112,11 @@ mod tests {
         let result = ElfLoader::parse(&bad_data);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("magic") || err_msg.contains("Magic"), 
-                "Expected 'magic' in error: {}", err_msg);
+        assert!(
+            err_msg.contains("magic") || err_msg.contains("Magic"),
+            "Expected 'magic' in error: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -997,8 +1125,11 @@ mod tests {
         let result = ElfLoader::parse(&bad_data);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("small") || err_msg.contains("bytes"),
-                "Expected size-related error: {}", err_msg);
+        assert!(
+            err_msg.contains("small") || err_msg.contains("bytes"),
+            "Expected size-related error: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1006,7 +1137,7 @@ mod tests {
         let code = vec![0x00; 100];
         let elf_data = build_test_elf(&code, 0x2000, 0x2000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let (low, high) = loader.memory_bounds();
         assert_eq!(low, 0x2000);
         assert_eq!(high, 0x2000 + 100);
@@ -1020,33 +1151,35 @@ mod tests {
         ];
         let data = vec![0x11, 0x22, 0x33, 0x44];
         let bss_size = 16;
-        
-        let elf_data = build_test_elf_with_data(
-            &code, &data, bss_size,
-            0x1000, 0x1000, 0x2000
-        );
-        
+
+        let elf_data = build_test_elf_with_data(&code, &data, bss_size, 0x1000, 0x1000, 0x2000);
+
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         assert_eq!(loader.entry_point(), 0x1000);
         assert_eq!(loader.loadable_segments().count(), 2);
-        
+
         let mut memory = Memory::with_default_size();
         loader.load_into_memory(&mut memory).unwrap();
-        
+
         // Verify code
         let instr = memory.read_u32(0x1000).unwrap();
         assert_eq!(instr, 0x02a00093);
-        
+
         // Verify data
         assert_eq!(memory.read_u8(0x2000).unwrap(), 0x11);
         assert_eq!(memory.read_u8(0x2001).unwrap(), 0x22);
         assert_eq!(memory.read_u8(0x2002).unwrap(), 0x33);
         assert_eq!(memory.read_u8(0x2003).unwrap(), 0x44);
-        
+
         // Verify BSS is zeroed
         for i in 0..bss_size {
-            assert_eq!(memory.read_u8(0x2004 + i).unwrap(), 0, "BSS byte {} not zero", i);
+            assert_eq!(
+                memory.read_u8(0x2004 + i).unwrap(),
+                0,
+                "BSS byte {} not zero",
+                i
+            );
         }
     }
 
@@ -1064,7 +1197,7 @@ mod tests {
         elf[40..42].copy_from_slice(&52u16.to_le_bytes()); // ehsize
         elf[42..44].copy_from_slice(&32u16.to_le_bytes()); // phentsize
         elf[46..48].copy_from_slice(&40u16.to_le_bytes()); // shentsize
-        
+
         let loader = ElfLoader::parse(&elf).unwrap();
         let (low, high) = loader.memory_bounds();
         assert_eq!(low, 0);
@@ -1075,11 +1208,11 @@ mod tests {
     #[test]
     fn test_segment_flags() {
         use segment_flags::*;
-        
+
         let code = vec![0x00; 4];
         let elf_data = build_test_elf(&code, 0x1000, 0x1000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let seg = loader.loadable_segments().next().unwrap();
         assert!(seg.p_flags & PF_R != 0, "Should be readable");
         assert!(seg.p_flags & PF_X != 0, "Should be executable");
@@ -1099,7 +1232,7 @@ mod tests {
         let code = vec![0x00; 4];
         let elf_data = build_test_elf(&code, 0x1000, 0x1000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let (rvc, flags) = loader.riscv_flags();
         assert!(!rvc, "Test ELF has no RVC flag");
         assert_eq!(flags, 0);
@@ -1111,17 +1244,17 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, // nop (padding)
             0x93, 0x00, 0xa0, 0x02, // addi x1, x0, 42 (entry point)
         ];
-        
+
         // Entry at offset 4 from load address
         let elf_data = build_test_elf(&code, 0x1004, 0x1000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         assert_eq!(loader.entry_point(), 0x1004);
-        
+
         let mut memory = Memory::with_default_size();
         let entry = loader.load_into_memory(&mut memory).unwrap();
         assert_eq!(entry, 0x1004);
-        
+
         // Verify the actual entry point instruction
         let instr = memory.read_u32(0x1004).unwrap();
         assert_eq!(instr, 0x02a00093); // addi x1, x0, 42
@@ -1133,10 +1266,10 @@ mod tests {
         let code: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
         let elf_data = build_test_elf(&code, 0x10000, 0x10000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let mut memory = Memory::with_default_size();
         loader.load_into_memory(&mut memory).unwrap();
-        
+
         // Verify pattern
         for i in 0..1024u32 {
             let expected = (i % 256) as u8;
@@ -1150,7 +1283,7 @@ mod tests {
         let code = vec![0x00; 8];
         let elf_data = build_test_elf(&code, 0x80000000, 0x80000000);
         let loader = ElfLoader::parse(&elf_data).unwrap();
-        
+
         let header = loader.header();
         assert_eq!(header.e_type, ET_EXEC);
         assert_eq!(header.e_machine, EM_RISCV);

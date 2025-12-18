@@ -10,12 +10,12 @@ pub struct CpuAir;
 impl CpuAir {
     /// Evaluate the x0 = 0 constraint.
     /// When writing to x0 (is_write_x0 selector = 1), rd_val must be 0.
-    /// 
+    ///
     /// # Arguments
     /// * `is_write_x0` - Boolean selector (1 if writing to x0, 0 otherwise)
     /// * `rd_val_lo` - Lower 16-bit limb of value being written
     /// * `rd_val_hi` - Upper 16-bit limb of value being written
-    /// 
+    ///
     /// # Returns
     /// Sum of two constraints (one per limb): is_write_x0 * rd_val_lo + is_write_x0 * rd_val_hi
     #[inline]
@@ -95,9 +95,7 @@ impl CpuAir {
     ) -> (M31, M31) {
         // Same as ADD but with immediate
         Self::add_constraint(
-            is_addi, rd_val_lo, rd_val_hi,
-            rs1_val_lo, rs1_val_hi,
-            imm_lo, imm_hi, carry
+            is_addi, rd_val_lo, rd_val_hi, rs1_val_lo, rs1_val_hi, imm_lo, imm_hi, carry,
         )
     }
 
@@ -161,33 +159,21 @@ impl CpuAir {
 
     /// Evaluate SLLI (Shift Left Logical Immediate) constraint.
     /// rd_val = rs1_val << shamt
-    pub fn slli_constraint(
-        bits_rs1: &[M31; 32],
-        bits_result: &[M31; 32],
-        shamt: M31,
-    ) -> Vec<M31> {
+    pub fn slli_constraint(bits_rs1: &[M31; 32], bits_result: &[M31; 32], shamt: M31) -> Vec<M31> {
         // Same as SLL but with immediate shift amount
         Self::shift_left_logical_constraints(bits_rs1, bits_result, shamt)
     }
 
     /// Evaluate SRLI (Shift Right Logical Immediate) constraint.
     /// rd_val = rs1_val >> shamt
-    pub fn srli_constraint(
-        bits_rs1: &[M31; 32],
-        bits_result: &[M31; 32],
-        shamt: M31,
-    ) -> Vec<M31> {
+    pub fn srli_constraint(bits_rs1: &[M31; 32], bits_result: &[M31; 32], shamt: M31) -> Vec<M31> {
         // Same as SRL but with immediate shift amount
         Self::shift_right_logical_constraints(bits_rs1, bits_result, shamt)
     }
 
     /// Evaluate SRAI (Shift Right Arithmetic Immediate) constraint.
     /// rd_val = rs1_val >> shamt (sign-extended)
-    pub fn srai_constraint(
-        bits_rs1: &[M31; 32],
-        bits_result: &[M31; 32],
-        shamt: M31,
-    ) -> Vec<M31> {
+    pub fn srai_constraint(bits_rs1: &[M31; 32], bits_result: &[M31; 32], shamt: M31) -> Vec<M31> {
         // Same as SRA but with immediate shift amount
         Self::shift_right_arithmetic_constraints(bits_rs1, bits_result, shamt)
     }
@@ -210,39 +196,39 @@ impl CpuAir {
         bits: &[M31; 32],
     ) -> Vec<M31> {
         let mut constraints = Vec::with_capacity(34);
-        
+
         // Constraint: each bit must be 0 or 1
         // bit * (bit - 1) = 0
         for &bit in bits {
             constraints.push(bit * (bit - M31::ONE));
         }
-        
+
         // Constraint: bits must reconstruct the value
         // value = bits[0] + 2*bits[1] + 4*bits[2] + ... + 2^31*bits[31]
         let mut recon_lo = M31::ZERO;
         let mut recon_hi = M31::ZERO;
         let mut power = M31::ONE;
-        
+
         for i in 0..32 {
             if i < 16 {
                 recon_lo = recon_lo + bits[i] * power;
             } else {
                 recon_hi = recon_hi + bits[i] * power;
             }
-            
+
             // Update power: multiply by 2 (mod p)
             power = power + power;
-            
+
             // After bit 15, reset power for high limb
             if i == 15 {
                 power = M31::ONE;
             }
         }
-        
+
         // Reconstruction constraints
         constraints.push(value_lo - recon_lo);
         constraints.push(value_hi - recon_hi);
-        
+
         constraints
     }
 
@@ -299,14 +285,15 @@ impl CpuAir {
         let two = M31::new(2);
         for i in 0..32 {
             // result[i] = a[i] + b[i] - 2*a[i]*b[i]
-            constraints.push(bits_result[i] - (bits_a[i] + bits_b[i] - two * bits_a[i] * bits_b[i]));
+            constraints
+                .push(bits_result[i] - (bits_a[i] + bits_b[i] - two * bits_a[i] * bits_b[i]));
         }
         constraints
     }
 
     /// Evaluate SLL (Shift Left Logical) constraint.
     /// result = value << (shift_amount % 32)
-    /// 
+    ///
     /// # Arguments
     /// * `bits_value` - Bit decomposition of input value
     /// * `bits_result` - Bit decomposition of result
@@ -320,15 +307,15 @@ impl CpuAir {
         shift_amount: M31,
     ) -> Vec<M31> {
         let mut constraints = Vec::with_capacity(32);
-        
+
         // For each possible shift amount (0-31), we need to check:
         // If shift_amount == k, then result[i] = value[i-k] for i >= k, else 0
         // We use selector pattern: is_shift_k * (result[i] - expected[i]) = 0
-        
+
         // Convert shift_amount to u32 for computation
         // Note: In real implementation, shift_amount should be range-checked [0, 31]
         let shift_val = shift_amount.value() % 32;
-        
+
         for i in 0..32 {
             if i < shift_val as usize {
                 // Bits shifted in from right are 0
@@ -339,7 +326,7 @@ impl CpuAir {
                 constraints.push(bits_result[i] - bits_value[src_idx]);
             }
         }
-        
+
         constraints
     }
 
@@ -355,9 +342,9 @@ impl CpuAir {
         shift_amount: M31,
     ) -> Vec<M31> {
         let mut constraints = Vec::with_capacity(32);
-        
+
         let shift_val = shift_amount.value() % 32;
-        
+
         for i in 0..32 {
             let src_idx = i + shift_val as usize;
             if src_idx >= 32 {
@@ -368,7 +355,7 @@ impl CpuAir {
                 constraints.push(bits_result[i] - bits_value[src_idx]);
             }
         }
-        
+
         constraints
     }
 
@@ -384,10 +371,10 @@ impl CpuAir {
         shift_amount: M31,
     ) -> Vec<M31> {
         let mut constraints = Vec::with_capacity(32);
-        
+
         let shift_val = shift_amount.value() % 32;
         let sign_bit = bits_value[31]; // MSB is sign bit
-        
+
         for i in 0..32 {
             let src_idx = i + shift_val as usize;
             if src_idx >= 32 {
@@ -398,7 +385,7 @@ impl CpuAir {
                 constraints.push(bits_result[i] - bits_value[src_idx]);
             }
         }
-        
+
         constraints
     }
 
@@ -424,32 +411,32 @@ impl CpuAir {
         diff_bits: &[M31; 32],
     ) -> Vec<M31> {
         let mut constraints = Vec::new();
-        
+
         // Constraint 1: result must be binary (0 or 1)
         constraints.push(result * (result - M31::ONE));
-        
+
         // Constraint 2: Check sign bits for signed comparison
         // If sign(a) != sign(b):
         //   result = sign(a) (1 if a is negative, 0 if a is positive)
         // If sign(a) == sign(b):
         //   result = sign(a - b)
-        
+
         let sign_a = bits_a[31];
         let sign_b = bits_b[31];
         let sign_diff = diff_bits[31];
-        
+
         // Case 1: Different signs
         // If a is negative and b is positive: result = 1
         // If a is positive and b is negative: result = 0
         let diff_signs = sign_a * (M31::ONE - sign_b); // 1 if a<0 and b>=0
-        
+
         // Case 2: Same signs - use difference sign
         let same_signs = M31::ONE - sign_a - sign_b + sign_a * sign_b * M31::new(2);
         let diff_result = same_signs * sign_diff;
-        
+
         // Combined: result = diff_signs + diff_result
         constraints.push(result - diff_signs - diff_result);
-        
+
         constraints
     }
 
@@ -473,17 +460,17 @@ impl CpuAir {
         borrow: M31,
     ) -> Vec<M31> {
         let mut constraints = Vec::new();
-        
+
         // Constraint 1: result must be binary (0 or 1)
         constraints.push(result * (result - M31::ONE));
-        
+
         // Constraint 2: borrow must be binary (0 or 1)
         constraints.push(borrow * (borrow - M31::ONE));
-        
+
         // Constraint 3: For unsigned, a < b iff borrow occurred in a - b
         // result = borrow
         constraints.push(result - borrow);
-        
+
         constraints
     }
 
@@ -511,21 +498,21 @@ impl CpuAir {
         borrow: M31,
     ) -> (M31, M31) {
         let two_16 = M31::new(1 << 16);
-        
+
         // Low limb: result_lo + b_lo = a_lo + borrow * 2^16
         // If a_lo < b_lo, we borrow from high (borrow = 1)
         let c_lo = a_lo + borrow * two_16 - b_lo - result_lo;
-        
+
         // High limb: result_hi + b_hi + borrow = a_hi
         // We subtract the borrowed amount from high limb
         let c_hi = a_hi - b_hi - borrow - result_hi;
-        
+
         (c_lo, c_hi)
     }
 
     /// Evaluate LB (Load Byte) constraint.
     /// rd = sign_extend(mem[addr][7:0])
-    /// 
+    ///
     /// # Arguments
     /// * `mem_value` - Full 32-bit word from memory
     /// * `byte_offset` - Which byte to load (0-3)
@@ -533,16 +520,12 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint ensuring correct byte extraction and sign extension
-    pub fn load_byte_constraint(
-        mem_value: M31,
-        byte_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
+    pub fn load_byte_constraint(mem_value: M31, byte_offset: M31, rd_val: M31) -> M31 {
         // Extract byte based on offset (0-3)
         // For simplicity, assume byte_offset is validated elsewhere
         // byte = (mem_value >> (8 * byte_offset)) & 0xFF
         // sign_extend = byte < 128 ? byte : byte | 0xFFFFFF00
-        
+
         // This requires bit decomposition of the byte
         // Placeholder: will be implemented with proper bit extraction
         mem_value - rd_val - byte_offset + mem_value // Placeholder identity
@@ -558,14 +541,10 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint ensuring correct halfword extraction and sign extension
-    pub fn load_halfword_constraint(
-        mem_value: M31,
-        half_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
+    pub fn load_halfword_constraint(mem_value: M31, half_offset: M31, rd_val: M31) -> M31 {
         // Extract halfword: (mem_value >> (16 * half_offset)) & 0xFFFF
         // sign_extend = half < 32768 ? half : half | 0xFFFF0000
-        
+
         // Placeholder: requires proper extraction logic
         mem_value - rd_val - half_offset + mem_value
     }
@@ -580,10 +559,7 @@ impl CpuAir {
     /// # Returns
     /// Constraint: rd_val = mem_value
     #[inline]
-    pub fn load_word_constraint(
-        mem_value: M31,
-        rd_val: M31,
-    ) -> M31 {
+    pub fn load_word_constraint(mem_value: M31, rd_val: M31) -> M31 {
         rd_val - mem_value
     }
 
@@ -597,14 +573,10 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint ensuring correct byte extraction and zero extension
-    pub fn load_byte_unsigned_constraint(
-        mem_value: M31,
-        byte_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
+    pub fn load_byte_unsigned_constraint(mem_value: M31, byte_offset: M31, rd_val: M31) -> M31 {
         // byte = (mem_value >> (8 * byte_offset)) & 0xFF
         // zero_extend = byte (no sign extension)
-        
+
         // Placeholder
         mem_value - rd_val - byte_offset + mem_value
     }
@@ -619,14 +591,10 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint ensuring correct halfword extraction and zero extension
-    pub fn load_halfword_unsigned_constraint(
-        mem_value: M31,
-        half_offset: M31,
-        rd_val: M31,
-    ) -> M31 {
+    pub fn load_halfword_unsigned_constraint(mem_value: M31, half_offset: M31, rd_val: M31) -> M31 {
         // half = (mem_value >> (16 * half_offset)) & 0xFFFF
         // zero_extend = half
-        
+
         // Placeholder
         mem_value - rd_val - half_offset + mem_value
     }
@@ -650,7 +618,7 @@ impl CpuAir {
     ) -> M31 {
         // Mask out target byte, insert new byte
         // new = (old & ~(0xFF << (8*offset))) | ((byte & 0xFF) << (8*offset))
-        
+
         // Placeholder
         old_mem_value - new_mem_value - byte_to_store - byte_offset + old_mem_value
     }
@@ -673,7 +641,7 @@ impl CpuAir {
         half_offset: M31,
     ) -> M31 {
         // new = (old & ~(0xFFFF << (16*offset))) | ((half & 0xFFFF) << (16*offset))
-        
+
         // Placeholder
         old_mem_value - new_mem_value - half_to_store - half_offset + old_mem_value
     }
@@ -688,10 +656,7 @@ impl CpuAir {
     /// # Returns
     /// Constraint: new_mem_value = rs2_val
     #[inline]
-    pub fn store_word_constraint(
-        new_mem_value: M31,
-        rs2_val: M31,
-    ) -> M31 {
+    pub fn store_word_constraint(new_mem_value: M31, rs2_val: M31) -> M31 {
         new_mem_value - rs2_val
     }
 
@@ -704,13 +669,10 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint: is_word_access * (addr_lo % 4) = 0
-    pub fn word_alignment_constraint(
-        addr_lo: M31,
-        is_word_access: M31,
-    ) -> M31 {
+    pub fn word_alignment_constraint(addr_lo: M31, is_word_access: M31) -> M31 {
         // addr_lo % 4 = addr_lo & 3
         // Need bit decomposition to check low 2 bits are 0
-        
+
         // Simplified: Check addr_lo mod 4 via auxiliary witness
         // For now, placeholder assuming alignment is pre-checked
         is_word_access * (addr_lo - addr_lo) // Identity
@@ -725,13 +687,10 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraint: is_half_access * (addr_lo % 2) = 0
-    pub fn halfword_alignment_constraint(
-        addr_lo: M31,
-        is_half_access: M31,
-    ) -> M31 {
+    pub fn halfword_alignment_constraint(addr_lo: M31, is_half_access: M31) -> M31 {
         // addr_lo % 2 = addr_lo & 1
         // Check low bit is 0
-        
+
         // Placeholder
         is_half_access * (addr_lo - addr_lo)
     }
@@ -770,11 +729,11 @@ impl CpuAir {
         // Using limbs: rs1 = rs1_hi * 2^16 + rs1_lo, same for rs2
         // Full product = (rs1_hi*2^16 + rs1_lo) * (rs2_hi*2^16 + rs2_lo)
         //              = rs1_hi*rs2_hi*2^32 + rs1_hi*rs2_lo*2^16 + rs1_lo*rs2_hi*2^16 + rs1_lo*rs2_lo
-        
+
         // We need auxiliary witnesses for intermediate products and carries
         // For now, simplified: check that reconstruction matches
         // Real implementation needs range checks on all limbs and carry propagation
-        
+
         // Placeholder helper for tests; production constraints live in rv32im.rs
         rd_val_lo - (rs1_lo * rs2_lo) - product_hi_lo + product_hi_lo
     }
@@ -803,7 +762,7 @@ impl CpuAir {
     ) -> M31 {
         // MULH returns upper 32 bits of signed 32x32->64 multiply
         // Needs sign extension logic and proper 64-bit computation
-        
+
         // Placeholder helper for tests; production constraints live in rv32im.rs
         rd_val_lo - (rs1_hi * rs2_hi) - product_lo_lo + product_lo_lo
     }
@@ -879,7 +838,7 @@ impl CpuAir {
         // Division constraint: dividend = divisor * quotient + remainder
         // rs1 = rs2 * quotient + remainder
         // Needs range check: |remainder| < |divisor|
-        
+
         // Simplified reconstruction check (full implementation lives in rv32im.rs)
         // Placeholder: check basic reconstruction of low limb
         rs1_lo - (rs2_lo * quotient_lo + remainder_lo)
@@ -907,7 +866,7 @@ impl CpuAir {
     ) -> M31 {
         // Unsigned division: simpler than signed
         // rs1 = rs2 * quotient + remainder, with remainder < rs2
-        
+
         // Placeholder
         rs1_lo - (rs2_lo * quotient_lo + remainder_lo)
     }
@@ -935,7 +894,7 @@ impl CpuAir {
     ) -> M31 {
         // Same as DIV but remainder is the result
         // rs1 = rs2 * quotient + remainder
-        
+
         // Placeholder
         rs1_lo - (rs2_lo * quotient_lo + remainder_lo)
     }
@@ -962,7 +921,7 @@ impl CpuAir {
     ) -> M31 {
         // Unsigned remainder
         // rs1 = rs2 * quotient + remainder, with remainder < rs2
-        
+
         // Placeholder
         rs1_lo - (rs2_lo * quotient_lo + remainder_lo)
     }
@@ -1000,23 +959,23 @@ impl CpuAir {
         // eq_result = 1 iff equal
         // branch_taken = eq_result
         // next_pc = branch_taken ? (pc + offset) : (pc + 4)
-        
+
         // Constraint 1: branch_taken = eq_result
         let c1 = branch_taken - eq_result;
-        
+
         // Constraint 2: eq_result is binary
         let c2 = eq_result * (M31::ONE - eq_result);
-        
+
         // Constraint 3: If eq_result=1, then diff must be zero
         let diff_lo = rs1_lo - rs2_lo;
         let diff_hi = rs1_hi - rs2_hi;
         let c3 = eq_result * (diff_lo + diff_hi);
-        
+
         // Constraint 4: PC update
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c4 = next_pc - expected_pc;
-        
+
         // Combine constraints (simplified - in practice would return array)
         c1 + c2 + c3 + c4
     }
@@ -1035,20 +994,20 @@ impl CpuAir {
     ) -> M31 {
         // branch_taken = 1 iff rs1 != rs2
         // ne_result = 1 - eq_result
-        
+
         let diff_lo = rs1_lo - rs2_lo;
         let diff_hi = rs1_hi - rs2_hi;
-        
+
         // If ne_result=1, at least one diff must be non-zero
         // If ne_result=0, both diffs must be zero
         let c1 = (M31::ONE - ne_result) * (diff_lo + diff_hi);
         let c2 = ne_result * (M31::ONE - ne_result); // Binary
         let c3 = branch_taken - ne_result;
-        
+
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c4 = next_pc - expected_pc;
-        
+
         c1 + c2 + c3 + c4
     }
 
@@ -1066,14 +1025,14 @@ impl CpuAir {
     ) -> M31 {
         // Reuse signed comparison logic
         // branch_taken = lt_result
-        
+
         let c1 = branch_taken - lt_result;
         let c2 = lt_result * (M31::ONE - lt_result); // Binary
-        
+
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c3 = next_pc - expected_pc;
-        
+
         // Placeholder helper for tests; production constraints live in rv32im.rs
         c1 + c2 + c3
     }
@@ -1093,11 +1052,11 @@ impl CpuAir {
         // ge_result = 1 - lt_result
         let c1 = branch_taken - ge_result;
         let c2 = ge_result * (M31::ONE - ge_result);
-        
+
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c3 = next_pc - expected_pc;
-        
+
         c1 + c2 + c3
     }
 
@@ -1116,11 +1075,11 @@ impl CpuAir {
         // Use unsigned comparison (borrow detection)
         let c1 = branch_taken - ltu_result;
         let c2 = ltu_result * (M31::ONE - ltu_result);
-        
+
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c3 = next_pc - expected_pc;
-        
+
         c1 + c2 + c3
     }
 
@@ -1140,11 +1099,11 @@ impl CpuAir {
         let geu_result = M31::ONE - lt_result;
         let c1 = branch_taken - geu_result;
         let c2 = geu_result * (M31::ONE - geu_result);
-        
+
         let four = M31::new(4);
         let expected_pc = branch_taken * (pc + offset) + (M31::ONE - branch_taken) * (pc + four);
         let c3 = next_pc - expected_pc;
-        
+
         c1 + c2 + c3
     }
 
@@ -1159,19 +1118,14 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraints ensuring correct JAL behavior
-    pub fn jal_constraint(
-        pc: M31,
-        next_pc: M31,
-        rd_val: M31,
-        offset: M31,
-    ) -> M31 {
+    pub fn jal_constraint(pc: M31, next_pc: M31, rd_val: M31, offset: M31) -> M31 {
         // Constraint 1: rd = pc + 4
         let four = M31::new(4);
         let c1 = rd_val - (pc + four);
-        
+
         // Constraint 2: next_pc = pc + offset
         let c2 = next_pc - (pc + offset);
-        
+
         c1 + c2
     }
 
@@ -1187,22 +1141,16 @@ impl CpuAir {
     ///
     /// # Returns
     /// Constraints ensuring correct JALR behavior
-    pub fn jalr_constraint(
-        pc: M31,
-        rs1_val: M31,
-        next_pc: M31,
-        rd_val: M31,
-        offset: M31,
-    ) -> M31 {
+    pub fn jalr_constraint(pc: M31, rs1_val: M31, next_pc: M31, rd_val: M31, offset: M31) -> M31 {
         // Constraint 1: rd = pc + 4
         let four = M31::new(4);
         let c1 = rd_val - (pc + four);
-        
+
         // Constraint 2: next_pc = (rs1 + offset) & ~1
         // The LSB masking ensures PC is always aligned
         // Simplified helper: assume next_pc = rs1 + offset (alignment checked in rv32im.rs)
         let c2 = next_pc - (rs1_val + offset);
-        
+
         // Placeholder helper for tests; production constraints implemented in rv32im.rs
         c1 + c2
     }
@@ -1240,7 +1188,7 @@ mod tests {
         let bits = u32_to_bits(value);
 
         let constraints = CpuAir::bit_decomposition_constraints(lo, hi, &bits);
-        
+
         // All 34 constraints should be satisfied (= 0)
         assert_eq!(constraints.len(), 34);
         for (i, constraint) in constraints.iter().enumerate() {
@@ -1255,7 +1203,7 @@ mod tests {
         let bits = u32_to_bits(value);
 
         let constraints = CpuAir::bit_decomposition_constraints(lo, hi, &bits);
-        
+
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO);
         }
@@ -1268,7 +1216,7 @@ mod tests {
         let bits = u32_to_bits(value);
 
         let constraints = CpuAir::bit_decomposition_constraints(lo, hi, &bits);
-        
+
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO);
         }
@@ -1286,7 +1234,7 @@ mod tests {
         let bits_result = u32_to_bits(result);
 
         let constraints = CpuAir::bitwise_and_constraints(&bits_a, &bits_b, &bits_result);
-        
+
         assert_eq!(constraints.len(), 32);
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO);
@@ -1309,10 +1257,16 @@ mod tests {
             let bits_result = u32_to_bits(expected);
 
             let constraints = CpuAir::bitwise_and_constraints(&bits_a, &bits_b, &bits_result);
-            
+
             for (i, constraint) in constraints.iter().enumerate() {
-                assert_eq!(*constraint, M31::ZERO, 
-                    "AND failed for case ({:#x}, {:#x}), bit {}", a, b, i);
+                assert_eq!(
+                    *constraint,
+                    M31::ZERO,
+                    "AND failed for case ({:#x}, {:#x}), bit {}",
+                    a,
+                    b,
+                    i
+                );
             }
         }
     }
@@ -1329,7 +1283,7 @@ mod tests {
         let bits_result = u32_to_bits(result);
 
         let constraints = CpuAir::bitwise_or_constraints(&bits_a, &bits_b, &bits_result);
-        
+
         assert_eq!(constraints.len(), 32);
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO);
@@ -1351,10 +1305,16 @@ mod tests {
             let bits_result = u32_to_bits(expected);
 
             let constraints = CpuAir::bitwise_or_constraints(&bits_a, &bits_b, &bits_result);
-            
+
             for (i, constraint) in constraints.iter().enumerate() {
-                assert_eq!(*constraint, M31::ZERO,
-                    "OR failed for case ({:#x}, {:#x}), bit {}", a, b, i);
+                assert_eq!(
+                    *constraint,
+                    M31::ZERO,
+                    "OR failed for case ({:#x}, {:#x}), bit {}",
+                    a,
+                    b,
+                    i
+                );
             }
         }
     }
@@ -1371,7 +1331,7 @@ mod tests {
         let bits_result = u32_to_bits(result);
 
         let constraints = CpuAir::bitwise_xor_constraints(&bits_a, &bits_b, &bits_result);
-        
+
         assert_eq!(constraints.len(), 32);
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO);
@@ -1393,10 +1353,16 @@ mod tests {
             let bits_result = u32_to_bits(expected);
 
             let constraints = CpuAir::bitwise_xor_constraints(&bits_a, &bits_b, &bits_result);
-            
+
             for (i, constraint) in constraints.iter().enumerate() {
-                assert_eq!(*constraint, M31::ZERO,
-                    "XOR failed for case ({:#x}, {:#x}), bit {}", a, b, i);
+                assert_eq!(
+                    *constraint,
+                    M31::ZERO,
+                    "XOR failed for case ({:#x}, {:#x}), bit {}",
+                    a,
+                    b,
+                    i
+                );
             }
         }
     }
@@ -1413,7 +1379,7 @@ mod tests {
         let bits_wrong = u32_to_bits(wrong_result);
 
         let constraints = CpuAir::bitwise_and_constraints(&bits_a, &bits_b, &bits_wrong);
-        
+
         // Should have non-zero constraints
         let has_nonzero = constraints.iter().any(|c| *c != M31::ZERO);
         assert!(has_nonzero, "Constraint should catch incorrect AND result");
@@ -1425,15 +1391,22 @@ mod tests {
         let value = 0x12345678u32;
         let (lo, hi) = u32_to_limbs(value);
         let mut bits = u32_to_bits(value);
-        
+
         // Flip a bit
-        bits[5] = if bits[5] == M31::ZERO { M31::ONE } else { M31::ZERO };
+        bits[5] = if bits[5] == M31::ZERO {
+            M31::ONE
+        } else {
+            M31::ZERO
+        };
 
         let constraints = CpuAir::bit_decomposition_constraints(lo, hi, &bits);
-        
+
         // Should have non-zero constraints (reconstruction will fail)
         let has_nonzero = constraints.iter().any(|c| *c != M31::ZERO);
-        assert!(has_nonzero, "Constraint should catch incorrect bit decomposition");
+        assert!(
+            has_nonzero,
+            "Constraint should catch incorrect bit decomposition"
+        );
     }
 
     #[test]
@@ -1447,11 +1420,8 @@ mod tests {
         let bits_result = u32_to_bits(expected);
         let shift_m31 = M31::new(shift);
 
-        let constraints = CpuAir::shift_left_logical_constraints(
-            &bits_value,
-            &bits_result,
-            shift_m31,
-        );
+        let constraints =
+            CpuAir::shift_left_logical_constraints(&bits_value, &bits_result, shift_m31);
 
         assert_eq!(constraints.len(), 32);
         for (i, constraint) in constraints.iter().enumerate() {
@@ -1475,16 +1445,17 @@ mod tests {
             let bits_result = u32_to_bits(expected);
             let shift_m31 = M31::new(shift);
 
-            let constraints = CpuAir::shift_left_logical_constraints(
-                &bits_value,
-                &bits_result,
-                shift_m31,
-            );
+            let constraints =
+                CpuAir::shift_left_logical_constraints(&bits_value, &bits_result, shift_m31);
 
             for (i, constraint) in constraints.iter().enumerate() {
                 assert_eq!(
-                    *constraint, M31::ZERO,
-                    "SLL({:#x} << {}) failed at bit {}", value, shift, i
+                    *constraint,
+                    M31::ZERO,
+                    "SLL({:#x} << {}) failed at bit {}",
+                    value,
+                    shift,
+                    i
                 );
             }
         }
@@ -1501,11 +1472,8 @@ mod tests {
         let bits_result = u32_to_bits(expected);
         let shift_m31 = M31::new(shift);
 
-        let constraints = CpuAir::shift_right_logical_constraints(
-            &bits_value,
-            &bits_result,
-            shift_m31,
-        );
+        let constraints =
+            CpuAir::shift_right_logical_constraints(&bits_value, &bits_result, shift_m31);
 
         assert_eq!(constraints.len(), 32);
         for constraint in constraints {
@@ -1529,16 +1497,17 @@ mod tests {
             let bits_result = u32_to_bits(expected);
             let shift_m31 = M31::new(shift);
 
-            let constraints = CpuAir::shift_right_logical_constraints(
-                &bits_value,
-                &bits_result,
-                shift_m31,
-            );
+            let constraints =
+                CpuAir::shift_right_logical_constraints(&bits_value, &bits_result, shift_m31);
 
             for (i, constraint) in constraints.iter().enumerate() {
                 assert_eq!(
-                    *constraint, M31::ZERO,
-                    "SRL({:#x} >> {}) failed at bit {}", value, shift, i
+                    *constraint,
+                    M31::ZERO,
+                    "SRL({:#x} >> {}) failed at bit {}",
+                    value,
+                    shift,
+                    i
                 );
             }
         }
@@ -1555,11 +1524,8 @@ mod tests {
         let bits_result = u32_to_bits(expected);
         let shift_m31 = M31::new(shift);
 
-        let constraints = CpuAir::shift_right_arithmetic_constraints(
-            &bits_value,
-            &bits_result,
-            shift_m31,
-        );
+        let constraints =
+            CpuAir::shift_right_arithmetic_constraints(&bits_value, &bits_result, shift_m31);
 
         assert_eq!(constraints.len(), 32);
         for constraint in constraints {
@@ -1578,11 +1544,8 @@ mod tests {
         let bits_result = u32_to_bits(expected);
         let shift_m31 = M31::new(shift);
 
-        let constraints = CpuAir::shift_right_arithmetic_constraints(
-            &bits_value,
-            &bits_result,
-            shift_m31,
-        );
+        let constraints =
+            CpuAir::shift_right_arithmetic_constraints(&bits_value, &bits_result, shift_m31);
 
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO, "SRA sign extension failed");
@@ -1593,12 +1556,12 @@ mod tests {
     fn test_shift_right_arithmetic_comprehensive() {
         let test_cases = [
             // (value, shift, expected_sra)
-            (0x00000008, 1, 0x00000004),  // Positive: 8 >> 1 = 4
-            (0x00000008, 2, 0x00000002),  // Positive: 8 >> 2 = 2
-            (0xFFFFFFF8u32, 1, 0xFFFFFFFCu32), // Negative: -8 >> 1 = -4 (sign extend)
-            (0xFFFFFFF8u32, 2, 0xFFFFFFFEu32), // Negative: -8 >> 2 = -2 (sign extend)
+            (0x00000008, 1, 0x00000004),        // Positive: 8 >> 1 = 4
+            (0x00000008, 2, 0x00000002),        // Positive: 8 >> 2 = 2
+            (0xFFFFFFF8u32, 1, 0xFFFFFFFCu32),  // Negative: -8 >> 1 = -4 (sign extend)
+            (0xFFFFFFF8u32, 2, 0xFFFFFFFEu32),  // Negative: -8 >> 2 = -2 (sign extend)
             (0x80000000u32, 31, 0xFFFFFFFFu32), // Min int >> 31 = -1 (all ones)
-            (0x7FFFFFFF, 31, 0x00000000),  // Max int >> 31 = 0
+            (0x7FFFFFFF, 31, 0x00000000),       // Max int >> 31 = 0
         ];
 
         for (value, shift, expected) in test_cases {
@@ -1606,17 +1569,18 @@ mod tests {
             let bits_result = u32_to_bits(expected);
             let shift_m31 = M31::new(shift);
 
-            let constraints = CpuAir::shift_right_arithmetic_constraints(
-                &bits_value,
-                &bits_result,
-                shift_m31,
-            );
+            let constraints =
+                CpuAir::shift_right_arithmetic_constraints(&bits_value, &bits_result, shift_m31);
 
             for (i, constraint) in constraints.iter().enumerate() {
                 assert_eq!(
-                    *constraint, M31::ZERO,
+                    *constraint,
+                    M31::ZERO,
                     "SRA({:#x} >> {}) failed at bit {}, expected {:#x}",
-                    value, shift, i, expected
+                    value,
+                    shift,
+                    i,
+                    expected
                 );
             }
         }
@@ -1633,24 +1597,24 @@ mod tests {
         let bits_wrong = u32_to_bits(wrong_result);
         let shift_m31 = M31::new(shift);
 
-        let constraints = CpuAir::shift_left_logical_constraints(
-            &bits_value,
-            &bits_wrong,
-            shift_m31,
-        );
+        let constraints =
+            CpuAir::shift_left_logical_constraints(&bits_value, &bits_wrong, shift_m31);
 
         let has_nonzero = constraints.iter().any(|c| *c != M31::ZERO);
-        assert!(has_nonzero, "Constraint should catch incorrect shift result");
+        assert!(
+            has_nonzero,
+            "Constraint should catch incorrect shift result"
+        );
     }
 
     #[test]
     fn test_set_less_than_unsigned() {
         // Test SLTU: unsigned comparison
         let test_cases = [
-            (5u32, 10u32, 1u32, 1u32),    // 5 < 10 = true, borrow = 1
-            (10u32, 5u32, 0u32, 0u32),    // 10 < 5 = false, borrow = 0
-            (5u32, 5u32, 0u32, 0u32),     // 5 < 5 = false, borrow = 0
-            (0u32, 1u32, 1u32, 1u32),     // 0 < 1 = true, borrow = 1
+            (5u32, 10u32, 1u32, 1u32),         // 5 < 10 = true, borrow = 1
+            (10u32, 5u32, 0u32, 0u32),         // 10 < 5 = false, borrow = 0
+            (5u32, 5u32, 0u32, 0u32),          // 5 < 5 = false, borrow = 0
+            (0u32, 1u32, 1u32, 1u32),          // 0 < 1 = true, borrow = 1
             (0xFFFFFFFFu32, 0u32, 0u32, 0u32), // max < 0 = false (unsigned)
         ];
 
@@ -1660,17 +1624,17 @@ mod tests {
             let result = M31::new(expected_result);
             let borrow = M31::new(expected_borrow);
 
-            let constraints = CpuAir::set_less_than_unsigned_constraints(
-                &bits_a,
-                &bits_b,
-                result,
-                borrow,
-            );
+            let constraints =
+                CpuAir::set_less_than_unsigned_constraints(&bits_a, &bits_b, result, borrow);
 
             for (i, constraint) in constraints.iter().enumerate() {
                 assert_eq!(
-                    *constraint, M31::ZERO,
-                    "SLTU({} < {}) failed at constraint {}", a, b, i
+                    *constraint,
+                    M31::ZERO,
+                    "SLTU({} < {}) failed at constraint {}",
+                    a,
+                    b,
+                    i
                 );
             }
         }
@@ -1680,23 +1644,19 @@ mod tests {
     fn test_set_less_than_signed_same_sign() {
         // Test SLT with same sign (both positive or both negative)
         // When signs are same, compare magnitudes via subtraction
-        
+
         // Case 1: Both positive
         let a = 5u32;
         let b = 10u32;
         let diff = (a.wrapping_sub(b)) as u32; // Will have sign bit set
-        
+
         let bits_a = u32_to_bits(a);
         let bits_b = u32_to_bits(b);
         let diff_bits = u32_to_bits(diff);
         let result = M31::ONE; // 5 < 10 = true
 
-        let constraints = CpuAir::set_less_than_signed_constraints(
-            &bits_a,
-            &bits_b,
-            result,
-            &diff_bits,
-        );
+        let constraints =
+            CpuAir::set_less_than_signed_constraints(&bits_a, &bits_b, result, &diff_bits);
 
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO, "SLT(5 < 10) failed");
@@ -1708,23 +1668,19 @@ mod tests {
         // Test SLT with different signs
         // Negative < Positive = true
         // Positive < Negative = false
-        
+
         // Case 1: negative < positive (true)
         let a = 0xFFFFFFFEu32; // -2 in two's complement
-        let b = 5u32;          // +5
+        let b = 5u32; // +5
         let diff = a.wrapping_sub(b);
-        
+
         let bits_a = u32_to_bits(a);
         let bits_b = u32_to_bits(b);
         let diff_bits = u32_to_bits(diff);
         let result = M31::ONE; // -2 < 5 = true
 
-        let constraints = CpuAir::set_less_than_signed_constraints(
-            &bits_a,
-            &bits_b,
-            result,
-            &diff_bits,
-        );
+        let constraints =
+            CpuAir::set_less_than_signed_constraints(&bits_a, &bits_b, result, &diff_bits);
 
         for constraint in constraints {
             assert_eq!(constraint, M31::ZERO, "SLT(-2 < 5) failed");
@@ -1734,18 +1690,14 @@ mod tests {
         let a2 = 5u32;
         let b2 = 0xFFFFFFFEu32; // -2
         let diff2 = a2.wrapping_sub(b2);
-        
+
         let bits_a2 = u32_to_bits(a2);
         let bits_b2 = u32_to_bits(b2);
         let diff_bits2 = u32_to_bits(diff2);
         let result2 = M31::ZERO; // 5 < -2 = false
 
-        let constraints2 = CpuAir::set_less_than_signed_constraints(
-            &bits_a2,
-            &bits_b2,
-            result2,
-            &diff_bits2,
-        );
+        let constraints2 =
+            CpuAir::set_less_than_signed_constraints(&bits_a2, &bits_b2, result2, &diff_bits2);
 
         for constraint in constraints2 {
             assert_eq!(constraint, M31::ZERO, "SLT(5 < -2) failed");
@@ -1756,7 +1708,7 @@ mod tests {
     fn test_sub_with_borrow() {
         // Test SUB constraint with borrow
         // Borrow occurs when low limb underflows: a_lo < b_lo
-        
+
         // Case 1: 10 - 5 = 5, no borrow in limbs
         let a = 10u32;
         let b = 5u32;
@@ -1764,7 +1716,11 @@ mod tests {
         let (b_lo, b_hi) = u32_to_limbs(b);
         let result = a.wrapping_sub(b);
         let (result_lo, result_hi) = u32_to_limbs(result);
-        let borrow = if a_lo.value() < b_lo.value() { M31::ONE } else { M31::ZERO };
+        let borrow = if a_lo.value() < b_lo.value() {
+            M31::ONE
+        } else {
+            M31::ZERO
+        };
 
         let (c_lo, c_hi) = CpuAir::sub_with_borrow_constraint(
             a_lo, a_hi, b_lo, b_hi, result_lo, result_hi, borrow,
@@ -1779,13 +1735,29 @@ mod tests {
         let (b_lo2, b_hi2) = u32_to_limbs(b2);
         let result2 = a2.wrapping_sub(b2);
         let (result_lo2, result_hi2) = u32_to_limbs(result2);
-        let borrow2 = if a_lo2.value() < b_lo2.value() { M31::ONE } else { M31::ZERO };
+        let borrow2 = if a_lo2.value() < b_lo2.value() {
+            M31::ONE
+        } else {
+            M31::ZERO
+        };
 
         let (c_lo2, c_hi2) = CpuAir::sub_with_borrow_constraint(
             a_lo2, a_hi2, b_lo2, b_hi2, result_lo2, result_hi2, borrow2,
         );
-        assert_eq!(c_lo2, M31::ZERO, "SUB({:#x} - {:#x}) low limb failed", a2, b2);
-        assert_eq!(c_hi2, M31::ZERO, "SUB({:#x} - {:#x}) high limb failed", a2, b2);
+        assert_eq!(
+            c_lo2,
+            M31::ZERO,
+            "SUB({:#x} - {:#x}) low limb failed",
+            a2,
+            b2
+        );
+        assert_eq!(
+            c_hi2,
+            M31::ZERO,
+            "SUB({:#x} - {:#x}) high limb failed",
+            a2,
+            b2
+        );
 
         // Case 3: 0x20000 - 0x10005 = 0xFFFB, requires borrow
         let a3 = 0x20000u32;
@@ -1794,13 +1766,29 @@ mod tests {
         let (b_lo3, b_hi3) = u32_to_limbs(b3);
         let result3 = a3.wrapping_sub(b3);
         let (result_lo3, result_hi3) = u32_to_limbs(result3);
-        let borrow3 = if a_lo3.value() < b_lo3.value() { M31::ONE } else { M31::ZERO };
+        let borrow3 = if a_lo3.value() < b_lo3.value() {
+            M31::ONE
+        } else {
+            M31::ZERO
+        };
 
         let (c_lo3, c_hi3) = CpuAir::sub_with_borrow_constraint(
             a_lo3, a_hi3, b_lo3, b_hi3, result_lo3, result_hi3, borrow3,
         );
-        assert_eq!(c_lo3, M31::ZERO, "SUB({:#x} - {:#x}) low limb failed", a3, b3);
-        assert_eq!(c_hi3, M31::ZERO, "SUB({:#x} - {:#x}) high limb failed", a3, b3);
+        assert_eq!(
+            c_lo3,
+            M31::ZERO,
+            "SUB({:#x} - {:#x}) low limb failed",
+            a3,
+            b3
+        );
+        assert_eq!(
+            c_hi3,
+            M31::ZERO,
+            "SUB({:#x} - {:#x}) high limb failed",
+            a3,
+            b3
+        );
     }
 
     #[test]
@@ -1814,15 +1802,14 @@ mod tests {
         let bits_a = u32_to_bits(a);
         let bits_b = u32_to_bits(b);
 
-        let constraints = CpuAir::set_less_than_unsigned_constraints(
-            &bits_a,
-            &bits_b,
-            wrong_result,
-            borrow,
-        );
+        let constraints =
+            CpuAir::set_less_than_unsigned_constraints(&bits_a, &bits_b, wrong_result, borrow);
 
         let has_nonzero = constraints.iter().any(|c| *c != M31::ZERO);
-        assert!(has_nonzero, "Constraint should catch incorrect comparison result");
+        assert!(
+            has_nonzero,
+            "Constraint should catch incorrect comparison result"
+        );
     }
 
     #[test]
@@ -1835,14 +1822,13 @@ mod tests {
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (imm_lo, imm_hi) = u32_to_limbs(imm);
         let (result_lo, result_hi) = u32_to_limbs(expected);
-        
+
         // No carry for this case
         let carry = M31::ZERO;
         let is_addi = M31::ONE;
 
         let (c_lo, c_hi) = CpuAir::addi_constraint(
-            is_addi, result_lo, result_hi,
-            rs1_lo, rs1_hi, imm_lo, imm_hi, carry
+            is_addi, result_lo, result_hi, rs1_lo, rs1_hi, imm_lo, imm_hi, carry,
         );
 
         assert_eq!(c_lo, M31::ZERO, "ADDI low limb failed");
@@ -1909,7 +1895,7 @@ mod tests {
         let rs1 = 0xFFFFFFFEu32; // -2
         let imm = 5u32;
         let diff = rs1.wrapping_sub(imm);
-        
+
         let bits_rs1 = u32_to_bits(rs1);
         let bits_imm = u32_to_bits(imm);
         let diff_bits = u32_to_bits(diff);
@@ -1927,7 +1913,7 @@ mod tests {
         // Test SLTIU: unsigned comparison with immediate
         let rs1 = 5u32;
         let imm = 10u32;
-        
+
         let bits_rs1 = u32_to_bits(rs1);
         let bits_imm = u32_to_bits(imm);
         let result = M31::ONE; // 5 < 10 = true (unsigned)
@@ -2012,12 +1998,18 @@ mod tests {
                     let (imm_lo, imm_hi) = u32_to_limbs(imm);
                     let (result_lo, result_hi) = u32_to_limbs(expected);
                     let carry = M31::ZERO;
-                    
+
                     let (c_lo, c_hi) = CpuAir::addi_constraint(
-                        M31::ONE, result_lo, result_hi,
-                        rs1_lo, rs1_hi, imm_lo, imm_hi, carry
+                        M31::ONE,
+                        result_lo,
+                        result_hi,
+                        rs1_lo,
+                        rs1_hi,
+                        imm_lo,
+                        imm_hi,
+                        carry,
                     );
-                    
+
                     assert_eq!(c_lo, M31::ZERO, "ADDI({} + {}) failed", rs1, imm);
                     assert_eq!(c_hi, M31::ZERO, "ADDI({} + {}) failed", rs1, imm);
                 }
@@ -2025,7 +2017,7 @@ mod tests {
                     let bits_rs1 = u32_to_bits(rs1);
                     let bits_imm = u32_to_bits(imm);
                     let bits_result = u32_to_bits(expected);
-                    
+
                     let constraints = CpuAir::andi_constraint(&bits_rs1, &bits_imm, &bits_result);
                     for c in constraints {
                         assert_eq!(c, M31::ZERO, "ANDI({:#x} & {:#x}) failed", rs1, imm);
@@ -2035,7 +2027,7 @@ mod tests {
                     let bits_rs1 = u32_to_bits(rs1);
                     let bits_imm = u32_to_bits(imm);
                     let bits_result = u32_to_bits(expected);
-                    
+
                     let constraints = CpuAir::ori_constraint(&bits_rs1, &bits_imm, &bits_result);
                     for c in constraints {
                         assert_eq!(c, M31::ZERO, "ORI({:#x} | {:#x}) failed", rs1, imm);
@@ -2045,7 +2037,7 @@ mod tests {
                     let bits_rs1 = u32_to_bits(rs1);
                     let bits_imm = u32_to_bits(imm);
                     let bits_result = u32_to_bits(expected);
-                    
+
                     let constraints = CpuAir::xori_constraint(&bits_rs1, &bits_imm, &bits_result);
                     for c in constraints {
                         assert_eq!(c, M31::ZERO, "XORI({:#x} ^ {:#x}) failed", rs1, imm);
@@ -2068,7 +2060,11 @@ mod tests {
         // Test with wrong value
         let wrong_rd = M31::new(0x11111111);
         let wrong_constraint = CpuAir::load_word_constraint(mem_value, wrong_rd);
-        assert_ne!(wrong_constraint, M31::ZERO, "LW should catch incorrect value");
+        assert_ne!(
+            wrong_constraint,
+            M31::ZERO,
+            "LW should catch incorrect value"
+        );
     }
 
     #[test]
@@ -2083,7 +2079,11 @@ mod tests {
         // Test with wrong stored value
         let wrong_mem = M31::new(0xABCDEF01);
         let wrong_constraint = CpuAir::store_word_constraint(wrong_mem, rs2_val);
-        assert_ne!(wrong_constraint, M31::ZERO, "SW should catch incorrect stored value");
+        assert_ne!(
+            wrong_constraint,
+            M31::ZERO,
+            "SW should catch incorrect stored value"
+        );
     }
 
     #[test]
@@ -2138,7 +2138,11 @@ mod tests {
         let is_half = M31::ONE;
 
         let constraint = CpuAir::halfword_alignment_constraint(aligned_addr, is_half);
-        assert_eq!(constraint, M31::ZERO, "Halfword alignment constraint failed");
+        assert_eq!(
+            constraint,
+            M31::ZERO,
+            "Halfword alignment constraint failed"
+        );
     }
 
     // ============================================================================
@@ -2160,14 +2164,7 @@ mod tests {
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs(product_hi);
 
         let constraint = CpuAir::mul_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            rd_lo,
-            rd_hi,
-            prod_hi_lo,
-            prod_hi_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, rd_lo, rd_hi, prod_hi_lo, prod_hi_hi,
         );
 
         // Placeholder implementation - just verify it compiles
@@ -2189,14 +2186,7 @@ mod tests {
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs(product_hi);
 
         let constraint = CpuAir::mul_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            rd_lo,
-            rd_hi,
-            prod_hi_lo,
-            prod_hi_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, rd_lo, rd_hi, prod_hi_lo, prod_hi_hi,
         );
 
         assert_eq!(constraint, M31::ZERO, "MUL large numbers");
@@ -2217,14 +2207,7 @@ mod tests {
         let (prod_lo_lo, prod_lo_hi) = u32_to_limbs(product_lo);
 
         let constraint = CpuAir::mulh_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            rd_lo,
-            rd_hi,
-            prod_lo_lo,
-            prod_lo_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, rd_lo, rd_hi, prod_lo_lo, prod_lo_hi,
         );
 
         // Placeholder - verify compilation
@@ -2245,14 +2228,7 @@ mod tests {
         let (prod_lo_lo, prod_lo_hi) = u32_to_limbs((product & 0xFFFFFFFF) as u32);
 
         let constraint = CpuAir::mulhu_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            rd_lo,
-            rd_hi,
-            prod_lo_lo,
-            prod_lo_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, rd_lo, rd_hi, prod_lo_lo, prod_lo_hi,
         );
 
         let _ = constraint;
@@ -2272,14 +2248,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::div_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         assert_eq!(constraint, M31::ZERO, "DIV basic constraint");
@@ -2299,14 +2268,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::div_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         // Placeholder - simplified limb check doesn't handle carries properly
@@ -2328,14 +2290,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::divu_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         // Placeholder - simplified limb check doesn't handle carries
@@ -2356,14 +2311,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::rem_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         assert_eq!(constraint, M31::ZERO, "REM basic constraint");
@@ -2383,14 +2331,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::remu_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         // Placeholder - simplified limb check doesn't handle carries
@@ -2412,14 +2353,7 @@ mod tests {
         let (prod_hi_lo, prod_hi_hi) = u32_to_limbs((correct_product >> 32) as u32);
 
         let constraint = CpuAir::mul_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            rd_lo,
-            rd_hi,
-            prod_hi_lo,
-            prod_hi_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, rd_lo, rd_hi, prod_hi_lo, prod_hi_hi,
         );
 
         // Placeholder won't catch this yet, but verify it compiles
@@ -2440,14 +2374,7 @@ mod tests {
         let (rem_lo, rem_hi) = u32_to_limbs(remainder);
 
         let constraint = CpuAir::div_constraint(
-            rs1_lo,
-            rs1_hi,
-            rs2_lo,
-            rs2_hi,
-            quot_lo,
-            quot_hi,
-            rem_lo,
-            rem_hi,
+            rs1_lo, rs1_hi, rs2_lo, rs2_hi, quot_lo, quot_hi, rem_lo, rem_hi,
         );
 
         // Should detect incorrect quotient (when fully implemented)
@@ -2466,18 +2393,25 @@ mod tests {
         let rs2 = 0x12345678u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let eq_result = M31::ONE; // Equal
         let branch_taken = M31::ONE; // Branch taken
         let pc = M31::new(0x1000);
         let offset = M31::new(0x100); // Branch offset
         let next_pc = M31::new(0x1100); // pc + offset
-        
+
         let constraint = CpuAir::beq_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            eq_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            eq_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BEQ taken constraint failed");
     }
 
@@ -2488,18 +2422,25 @@ mod tests {
         let rs2 = 0x12345679u32; // Different
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let eq_result = M31::ZERO; // Not equal
         let branch_taken = M31::ZERO; // Branch not taken
         let pc = M31::new(0x1000);
         let offset = M31::new(0x100);
         let next_pc = M31::new(0x1004); // pc + 4
-        
+
         let constraint = CpuAir::beq_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            eq_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            eq_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BEQ not taken constraint failed");
     }
 
@@ -2510,18 +2451,25 @@ mod tests {
         let rs2 = 0x1234u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let ne_result = M31::ONE; // Not equal
         let branch_taken = M31::ONE;
         let pc = M31::new(0x2000);
         let offset = M31::new(0x50);
         let next_pc = M31::new(0x2050); // pc + offset
-        
+
         let constraint = CpuAir::bne_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            ne_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            ne_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BNE taken constraint failed");
     }
 
@@ -2532,18 +2480,25 @@ mod tests {
         let rs2 = 50u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let lt_result = M31::ONE; // rs1 < rs2
         let branch_taken = M31::ONE;
         let pc = M31::new(0x3000);
         let offset = M31::new(0x200);
         let next_pc = M31::new(0x3200);
-        
+
         let constraint = CpuAir::blt_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            lt_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            lt_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BLT taken constraint failed");
     }
 
@@ -2554,18 +2509,25 @@ mod tests {
         let rs2 = 20u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let ge_result = M31::ZERO; // rs1 < rs2, so NOT >=
         let branch_taken = M31::ZERO;
         let pc = M31::new(0x4000);
         let offset = M31::new(0x80);
         let next_pc = M31::new(0x4004); // pc + 4
-        
+
         let constraint = CpuAir::bge_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            ge_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            ge_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BGE not taken constraint failed");
     }
 
@@ -2576,18 +2538,25 @@ mod tests {
         let rs2 = 100u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let ltu_result = M31::ONE; // 5 < 100 (unsigned)
         let branch_taken = M31::ONE;
         let pc = M31::new(0x5000);
         let offset = M31::new(0x40);
         let next_pc = M31::new(0x5040);
-        
+
         let constraint = CpuAir::bltu_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            ltu_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            ltu_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BLTU taken constraint failed");
     }
 
@@ -2598,18 +2567,25 @@ mod tests {
         let rs2 = 0xFFFFu32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         let lt_result = M31::ZERO; // Equal, so not less-than (geu = 1 - 0 = 1)
         let branch_taken = M31::ONE;
         let pc = M31::new(0x6000);
         let offset = M31::new(0x10);
         let next_pc = M31::new(0x6010);
-        
+
         let constraint = CpuAir::bgeu_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            lt_result, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            lt_result,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         assert_eq!(constraint, M31::ZERO, "BGEU taken constraint failed");
     }
 
@@ -2620,9 +2596,9 @@ mod tests {
         let offset = M31::new(0x200);
         let next_pc = M31::new(0x1200); // pc + offset
         let rd_val = M31::new(0x1004); // pc + 4
-        
+
         let constraint = CpuAir::jal_constraint(pc, next_pc, rd_val, offset);
-        
+
         assert_eq!(constraint, M31::ZERO, "JAL constraint failed");
     }
 
@@ -2633,9 +2609,9 @@ mod tests {
         let offset = M31::new(0x200);
         let next_pc = M31::new(0x1200);
         let wrong_rd = M31::new(0x1008); // Wrong link value
-        
+
         let constraint = CpuAir::jal_constraint(pc, next_pc, wrong_rd, offset);
-        
+
         assert_ne!(constraint, M31::ZERO, "JAL should catch incorrect link");
     }
 
@@ -2647,9 +2623,9 @@ mod tests {
         let offset = M31::new(0x100);
         let next_pc = M31::new(0x5100); // rs1 + offset
         let rd_val = M31::new(0x2004); // pc + 4
-        
+
         let constraint = CpuAir::jalr_constraint(pc, rs1_val, next_pc, rd_val, offset);
-        
+
         assert_eq!(constraint, M31::ZERO, "JALR constraint failed");
     }
 
@@ -2661,9 +2637,9 @@ mod tests {
         let offset = M31::new(0x100);
         let wrong_next_pc = M31::new(0x5200); // Incorrect target
         let rd_val = M31::new(0x2004);
-        
+
         let constraint = CpuAir::jalr_constraint(pc, rs1_val, wrong_next_pc, rd_val, offset);
-        
+
         assert_ne!(constraint, M31::ZERO, "JALR should catch incorrect target");
     }
 
@@ -2674,19 +2650,26 @@ mod tests {
         let rs2 = 200u32;
         let (rs1_lo, rs1_hi) = u32_to_limbs(rs1);
         let (rs2_lo, rs2_hi) = u32_to_limbs(rs2);
-        
+
         // BEQ with rs1 != rs2 but claiming equality
         let wrong_eq = M31::ONE; // Wrong: they're not equal
         let branch_taken = M31::ONE;
         let pc = M31::new(0x1000);
         let offset = M31::new(0x100);
         let next_pc = M31::new(0x1100);
-        
+
         let constraint = CpuAir::beq_constraint(
-            rs1_lo, rs1_hi, rs2_lo, rs2_hi,
-            wrong_eq, branch_taken, pc, next_pc, offset,
+            rs1_lo,
+            rs1_hi,
+            rs2_lo,
+            rs2_hi,
+            wrong_eq,
+            branch_taken,
+            pc,
+            next_pc,
+            offset,
         );
-        
+
         // Should fail because eq_result doesn't match actual equality
         assert_ne!(constraint, M31::ZERO, "Should detect incorrect eq_result");
     }

@@ -7,16 +7,16 @@
 //! - Syscall/precompile hooks for delegation
 
 pub mod cpu;
-pub mod memory;
 pub mod decode;
-pub mod trace;
-pub mod error;
 pub mod elf;
+pub mod error;
+pub mod memory;
 pub mod syscall;
+pub mod trace;
 
 pub use cpu::Cpu;
-pub use memory::Memory;
-pub use trace::{ExecutionTrace, TraceRow};
-pub use error::ExecutorError;
 pub use elf::ElfLoader;
+pub use error::ExecutorError;
+pub use memory::Memory;
 pub use syscall::SyscallCode;
+pub use trace::{ExecutionTrace, TraceRow};

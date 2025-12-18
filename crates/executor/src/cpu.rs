@@ -84,8 +84,10 @@
 //! The trace captures every CPU state transition and is used by the prover
 //! to generate a zero-knowledge proof of correct execution.
 
-use crate::decode::{opcode, DecodedInstr, branch_funct3, load_funct3, store_funct3, 
-                    op_imm_funct3, op_funct3, system_funct3, funct7};
+use crate::decode::{
+    branch_funct3, funct7, load_funct3, op_funct3, op_imm_funct3, opcode, store_funct3,
+    system_funct3, DecodedInstr,
+};
 use crate::error::ExecutorError;
 use crate::memory::Memory;
 use crate::trace::{ExecutionTrace, InstrFlags, MemOp, TraceRow};
@@ -239,7 +241,12 @@ impl Cpu {
                     branch_funct3::BGE => (rs1_val as i32) >= (rs2_val as i32),
                     branch_funct3::BLTU => rs1_val < rs2_val,
                     branch_funct3::BGEU => rs1_val >= rs2_val,
-                    _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                    _ => {
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        })
+                    }
                 };
 
                 if taken {
@@ -257,13 +264,21 @@ impl Cpu {
                         // LB: Load Byte (sign-extended)
                         let val = self.memory.read_u8(addr)?;
                         rd_val = (val as i8) as i32 as u32;
-                        mem_op = MemOp::LoadByte { addr, value: val, signed: true };
+                        mem_op = MemOp::LoadByte {
+                            addr,
+                            value: val,
+                            signed: true,
+                        };
                     }
                     load_funct3::LH => {
                         // LH: Load Halfword (sign-extended)
                         let val = self.memory.read_u16(addr)?;
                         rd_val = (val as i16) as i32 as u32;
-                        mem_op = MemOp::LoadHalf { addr, value: val, signed: true };
+                        mem_op = MemOp::LoadHalf {
+                            addr,
+                            value: val,
+                            signed: true,
+                        };
                     }
                     load_funct3::LW => {
                         // LW: Load Word
@@ -275,15 +290,28 @@ impl Cpu {
                         // LBU: Load Byte Unsigned
                         let val = self.memory.read_u8(addr)?;
                         rd_val = val as u32;
-                        mem_op = MemOp::LoadByte { addr, value: val, signed: false };
+                        mem_op = MemOp::LoadByte {
+                            addr,
+                            value: val,
+                            signed: false,
+                        };
                     }
                     load_funct3::LHU => {
                         // LHU: Load Halfword Unsigned
                         let val = self.memory.read_u16(addr)?;
                         rd_val = val as u32;
-                        mem_op = MemOp::LoadHalf { addr, value: val, signed: false };
+                        mem_op = MemOp::LoadHalf {
+                            addr,
+                            value: val,
+                            signed: false,
+                        };
                     }
-                    _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                    _ => {
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        })
+                    }
                 }
             }
 
@@ -311,7 +339,12 @@ impl Cpu {
                         self.memory.write_u32(addr, val)?;
                         mem_op = MemOp::StoreWord { addr, value: val };
                     }
-                    _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                    _ => {
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        })
+                    }
                 }
             }
 
@@ -361,7 +394,12 @@ impl Cpu {
                             rs1_val >> shamt
                         }
                     }
-                    _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                    _ => {
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        })
+                    }
                 };
             }
 
@@ -451,7 +489,12 @@ impl Cpu {
                                 rs1_val % rs2_val
                             };
                         }
-                        _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                        _ => {
+                            return Err(ExecutorError::InvalidInstruction {
+                                pc: self.pc,
+                                bits: instr_bits,
+                            })
+                        }
                     }
                 } else {
                     // ========== Base RV32I OP ==========
@@ -497,7 +540,12 @@ impl Cpu {
                             // AND
                             rs1_val & rs2_val
                         }
-                        _ => return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits }),
+                        _ => {
+                            return Err(ExecutorError::InvalidInstruction {
+                                pc: self.pc,
+                                bits: instr_bits,
+                            })
+                        }
                     };
                 }
             }
@@ -512,7 +560,7 @@ impl Cpu {
                                 // ECALL - Environment Call
                                 flags.is_ecall = true;
                                 let syscall_id = self.get_reg(17); // a7 register
-                                
+
                                 // Handle specific supported syscalls
                                 match syscall_id {
                                     0x1000 => {
@@ -523,32 +571,40 @@ impl Cpu {
                                         let input_ptr = self.get_reg(10);
                                         let input_len = self.get_reg(11);
                                         let output_ptr = self.get_reg(12);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(input_ptr, input_len) {
-                                            return Err(ExecutorError::OutOfBounds { addr: input_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: input_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(output_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: output_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: output_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let input_data = self.memory.slice(input_ptr, input_len as usize)
-                                            .ok_or(ExecutorError::OutOfBounds { addr: input_ptr })?;
-                                        
+                                        let input_data = self
+                                            .memory
+                                            .slice(input_ptr, input_len as usize)
+                                            .ok_or(ExecutorError::OutOfBounds {
+                                                addr: input_ptr,
+                                            })?;
+
                                         // Compute Keccak256 hash using delegation module
                                         let hash = zp1_delegation::keccak::keccak256(input_data);
-                                        
+
                                         // Write output to memory
                                         self.memory.write_slice(output_ptr, &hash)?;
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Keccak256 {
                                             input_ptr,
                                             input_len,
                                             output_ptr,
                                         };
-                                        
+
                                         // Return success (a0 = 0)
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
@@ -559,19 +615,24 @@ impl Cpu {
                                         // a1 = output pointer (20 bytes: address)
                                         let input_ptr = self.get_reg(10);
                                         let output_ptr = self.get_reg(11);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(input_ptr, 97) {
-                                            return Err(ExecutorError::OutOfBounds { addr: input_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: input_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(output_ptr, 20) {
-                                            return Err(ExecutorError::OutOfBounds { addr: output_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: output_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let input_data = self.memory.slice(input_ptr, 97)
-                                            .ok_or(ExecutorError::OutOfBounds { addr: input_ptr })?;
-                                        
+                                        let input_data = self.memory.slice(input_ptr, 97).ok_or(
+                                            ExecutorError::OutOfBounds { addr: input_ptr },
+                                        )?;
+
                                         let mut hash = [0u8; 32];
                                         let mut r = [0u8; 32];
                                         let mut s = [0u8; 32];
@@ -579,10 +640,11 @@ impl Cpu {
                                         let v = input_data[32];
                                         r.copy_from_slice(&input_data[33..65]);
                                         s.copy_from_slice(&input_data[65..97]);
-                                        
+
                                         // Perform ECRECOVER using delegation module
-                                        let address = zp1_delegation::ecrecover::ecrecover(&hash, v, &r, &s);
-                                        
+                                        let address =
+                                            zp1_delegation::ecrecover::ecrecover(&hash, v, &r, &s);
+
                                         // Write output to memory
                                         match address {
                                             Some(addr) => {
@@ -595,13 +657,13 @@ impl Cpu {
                                                 self.set_reg(10, 1); // Failure
                                             }
                                         }
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Ecrecover {
                                             input_ptr,
                                             output_ptr,
                                         };
-                                        
+
                                         next_pc = self.pc.wrapping_add(4);
                                     }
                                     0x1002 => {
@@ -609,36 +671,44 @@ impl Cpu {
                                         // a0 = message pointer
                                         // a1 = message length
                                         // a2 = digest pointer (32 bytes)
-                                        
+
                                         let message_ptr = self.get_reg(10);
                                         let message_len = self.get_reg(11);
                                         let digest_ptr = self.get_reg(12);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(message_ptr, message_len) {
-                                            return Err(ExecutorError::OutOfBounds { addr: message_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(digest_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: digest_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: digest_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let message = self.memory.slice(message_ptr, message_len as usize)
-                                            .ok_or(ExecutorError::OutOfBounds { addr: message_ptr })?;
-                                        
+                                        let message = self
+                                            .memory
+                                            .slice(message_ptr, message_len as usize)
+                                            .ok_or(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            })?;
+
                                         // Compute SHA-256 hash using delegation module
                                         let digest = zp1_delegation::sha256::sha256(message);
-                                        
+
                                         // Write digest to memory
                                         self.memory.write_slice(digest_ptr, &digest)?;
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Sha256 {
                                             message_ptr: message_ptr as usize,
                                             message_len: message_len as usize,
                                             digest_ptr: digest_ptr as usize,
                                         };
-                                        
+
                                         // Return success (a0 = 0)
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
@@ -648,36 +718,44 @@ impl Cpu {
                                         // a0 = message pointer
                                         // a1 = message length
                                         // a2 = digest pointer (20 bytes)
-                                        
+
                                         let message_ptr = self.get_reg(10);
                                         let message_len = self.get_reg(11);
                                         let digest_ptr = self.get_reg(12);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(message_ptr, message_len) {
-                                            return Err(ExecutorError::OutOfBounds { addr: message_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(digest_ptr, 20) {
-                                            return Err(ExecutorError::OutOfBounds { addr: digest_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: digest_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let message = self.memory.slice(message_ptr, message_len as usize)
-                                            .ok_or(ExecutorError::OutOfBounds { addr: message_ptr })?;
-                                        
+                                        let message = self
+                                            .memory
+                                            .slice(message_ptr, message_len as usize)
+                                            .ok_or(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            })?;
+
                                         // Compute RIPEMD-160 hash using delegation module
                                         let digest = zp1_delegation::ripemd160::ripemd160(message);
-                                        
+
                                         // Write digest to memory
                                         self.memory.write_slice(digest_ptr, &digest)?;
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Ripemd160 {
                                             message_ptr: message_ptr as usize,
                                             message_len: message_len as usize,
                                             digest_ptr: digest_ptr as usize,
                                         };
-                                        
+
                                         // Return success (a0 = 0)
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
@@ -688,57 +766,74 @@ impl Cpu {
                                         // a1 = exponent pointer (32 bytes)
                                         // a2 = modulus pointer (32 bytes)
                                         // a3 = result pointer (32 bytes)
-                                        
+
                                         let base_ptr = self.get_reg(10);
                                         let exp_ptr = self.get_reg(11);
                                         let mod_ptr = self.get_reg(12);
                                         let result_ptr = self.get_reg(13);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(base_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: base_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: base_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(exp_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: exp_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: exp_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(mod_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: mod_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: mod_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(result_ptr, 32) {
-                                            return Err(ExecutorError::OutOfBounds { addr: result_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: result_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let base_bytes = self.memory.slice(base_ptr, 32)
+                                        let base_bytes = self
+                                            .memory
+                                            .slice(base_ptr, 32)
                                             .ok_or(ExecutorError::OutOfBounds { addr: base_ptr })?;
-                                        let exp_bytes = self.memory.slice(exp_ptr, 32)
+                                        let exp_bytes = self
+                                            .memory
+                                            .slice(exp_ptr, 32)
                                             .ok_or(ExecutorError::OutOfBounds { addr: exp_ptr })?;
-                                        let mod_bytes = self.memory.slice(mod_ptr, 32)
+                                        let mod_bytes = self
+                                            .memory
+                                            .slice(mod_ptr, 32)
                                             .ok_or(ExecutorError::OutOfBounds { addr: mod_ptr })?;
-                                        
+
                                         // Convert to U256
                                         let base = zp1_delegation::bigint::U256::from_le_bytes(
-                                            base_bytes.try_into().unwrap()
+                                            base_bytes.try_into().unwrap(),
                                         );
                                         let exponent = zp1_delegation::bigint::U256::from_le_bytes(
-                                            exp_bytes.try_into().unwrap()
+                                            exp_bytes.try_into().unwrap(),
                                         );
                                         let modulus = zp1_delegation::bigint::U256::from_le_bytes(
-                                            mod_bytes.try_into().unwrap()
+                                            mod_bytes.try_into().unwrap(),
                                         );
-                                        
+
                                         // Compute modular exponentiation using delegation
-                                        let delegation_call = zp1_delegation::bigint::delegate_u256_modexp(
-                                            &base, &exponent, &modulus
-                                        );
-                                        
+                                        let delegation_call =
+                                            zp1_delegation::bigint::delegate_u256_modexp(
+                                                &base, &exponent, &modulus,
+                                            );
+
                                         // Convert M31 output limbs back to U256
-                                        let result = zp1_delegation::bigint::U256::from_m31_limbs(&delegation_call.output);
-                                        
+                                        let result = zp1_delegation::bigint::U256::from_m31_limbs(
+                                            &delegation_call.output,
+                                        );
+
                                         // Write result to memory
                                         let result_bytes = result.to_le_bytes();
                                         self.memory.write_slice(result_ptr, &result_bytes)?;
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Modexp {
                                             base_ptr: base_ptr as usize,
@@ -746,7 +841,7 @@ impl Cpu {
                                             mod_ptr: mod_ptr as usize,
                                             result_ptr: result_ptr as usize,
                                         };
-                                        
+
                                         // Return success (a0 = 0)
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
@@ -756,47 +851,61 @@ impl Cpu {
                                         // a0 = message pointer
                                         // a1 = message length
                                         // a2 = digest pointer (64 bytes)
-                                        
+
                                         let message_ptr = self.get_reg(10);
                                         let message_len = self.get_reg(11);
                                         let digest_ptr = self.get_reg(12);
-                                        
+
                                         // Validate pointers
                                         if !self.memory.is_valid_range(message_ptr, message_len) {
-                                            return Err(ExecutorError::OutOfBounds { addr: message_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            });
                                         }
                                         if !self.memory.is_valid_range(digest_ptr, 64) {
-                                            return Err(ExecutorError::OutOfBounds { addr: digest_ptr });
+                                            return Err(ExecutorError::OutOfBounds {
+                                                addr: digest_ptr,
+                                            });
                                         }
-                                        
+
                                         // Extract input data
-                                        let message = self.memory.slice(message_ptr, message_len as usize)
-                                            .ok_or(ExecutorError::OutOfBounds { addr: message_ptr })?;
-                                        
+                                        let message = self
+                                            .memory
+                                            .slice(message_ptr, message_len as usize)
+                                            .ok_or(ExecutorError::OutOfBounds {
+                                                addr: message_ptr,
+                                            })?;
+
                                         // Compute Blake2b hash using delegation module
                                         let digest = zp1_delegation::blake2b::blake2b(message);
-                                        
+
                                         // Write digest to memory
                                         self.memory.write_slice(digest_ptr, &digest)?;
-                                        
+
                                         // Record the delegation in trace
                                         mem_op = MemOp::Blake2b {
                                             message_ptr: message_ptr as usize,
                                             message_len: message_len as usize,
                                             digest_ptr: digest_ptr as usize,
                                         };
-                                        
+
                                         // Return success (a0 = 0)
                                         self.set_reg(10, 0);
                                         next_pc = self.pc.wrapping_add(4);
                                     }
                                     93 => {
                                         // Linux exit syscall - allow this for program termination
-                                        return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
+                                        return Err(ExecutorError::Ecall {
+                                            pc: self.pc,
+                                            syscall_id,
+                                        });
                                     }
                                     _ => {
                                         // Unsupported syscall
-                                        return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
+                                        return Err(ExecutorError::Ecall {
+                                            pc: self.pc,
+                                            syscall_id,
+                                        });
                                     }
                                 }
                             }
@@ -811,21 +920,37 @@ impl Cpu {
                             }
                             0x302 => {
                                 // MRET - Machine Return (not supported in single-mode)
-                                return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
+                                return Err(ExecutorError::InvalidInstruction {
+                                    pc: self.pc,
+                                    bits: instr_bits,
+                                });
                             }
                             _ => {
                                 // Unknown privileged instruction
-                                return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
+                                return Err(ExecutorError::InvalidInstruction {
+                                    pc: self.pc,
+                                    bits: instr_bits,
+                                });
                             }
                         }
                     }
                     // CSR instructions are not supported in this minimal implementation
-                    system_funct3::CSRRW | system_funct3::CSRRS | system_funct3::CSRRC |
-                    system_funct3::CSRRWI | system_funct3::CSRRSI | system_funct3::CSRRCI => {
-                        return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
+                    system_funct3::CSRRW
+                    | system_funct3::CSRRS
+                    | system_funct3::CSRRC
+                    | system_funct3::CSRRWI
+                    | system_funct3::CSRRSI
+                    | system_funct3::CSRRCI => {
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        });
                     }
                     _ => {
-                        return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
+                        return Err(ExecutorError::InvalidInstruction {
+                            pc: self.pc,
+                            bits: instr_bits,
+                        });
                     }
                 }
             }
@@ -836,18 +961,25 @@ impl Cpu {
                 // In single-threaded deterministic execution, these are NOPs
                 // No memory reordering or cache coherency needed
                 // Just advance to next instruction (already set above)
-                
+
                 // Mark in flags for tracing purposes
                 flags.is_alu = false; // Not an ALU op, just a NOP-like fence
             }
 
             _ => {
-                return Err(ExecutorError::InvalidInstruction { pc: self.pc, bits: instr_bits });
+                return Err(ExecutorError::InvalidInstruction {
+                    pc: self.pc,
+                    bits: instr_bits,
+                });
             }
         }
 
         // Write back to register (x0 writes are ignored, stores don't write, branches don't write)
-        if instr.rd != 0 && !instr.is_store() && !instr.is_branch() && instr.opcode != opcode::SYSTEM {
+        if instr.rd != 0
+            && !instr.is_store()
+            && !instr.is_branch()
+            && instr.opcode != opcode::SYSTEM
+        {
             self.set_reg(instr.rd, rd_val);
         }
 
@@ -902,7 +1034,10 @@ impl Cpu {
                         return Ok(trace);
                     }
                     // For other syscalls, return the error
-                    return Err(ExecutorError::Ecall { pc: self.pc, syscall_id });
+                    return Err(ExecutorError::Ecall {
+                        pc: self.pc,
+                        syscall_id,
+                    });
                 }
                 Err(e) => return Err(e),
             }
@@ -1093,9 +1228,9 @@ mod tests {
     fn test_add() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(1, 0, 10),  // x1 = 10
-            assemble_addi(2, 0, 20),  // x2 = 20
-            assemble_add(3, 1, 2),    // x3 = x1 + x2 = 30
+            assemble_addi(1, 0, 10), // x1 = 10
+            assemble_addi(2, 0, 20), // x2 = 20
+            assemble_add(3, 1, 2),   // x3 = x1 + x2 = 30
         ]
         .iter()
         .flat_map(|i| i.to_le_bytes())
@@ -1161,15 +1296,15 @@ mod tests {
         cpu.load_program(0x100, &program).unwrap();
         cpu.step().unwrap();
         assert_eq!(cpu.get_reg(1), 0x104); // Return address
-        assert_eq!(cpu.pc, 0x108);         // Jump target
+        assert_eq!(cpu.pc, 0x108); // Jump target
     }
 
     #[test]
     fn test_jalr() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(2, 0, 0x200),  // x2 = 0x200
-            assemble_jalr(1, 2, 4),      // x1 = pc+4; pc = x2 + 4 = 0x204
+            assemble_addi(2, 0, 0x200), // x2 = 0x200
+            assemble_jalr(1, 2, 4),     // x1 = pc+4; pc = x2 + 4 = 0x204
         ]
         .iter()
         .flat_map(|i| i.to_le_bytes())
@@ -1178,8 +1313,8 @@ mod tests {
         cpu.load_program(0, &program).unwrap();
         cpu.step().unwrap();
         cpu.step().unwrap();
-        assert_eq!(cpu.get_reg(1), 8);     // Return address (0 + 4 + 4)
-        assert_eq!(cpu.pc, 0x204);         // Jump target
+        assert_eq!(cpu.get_reg(1), 8); // Return address (0 + 4 + 4)
+        assert_eq!(cpu.pc, 0x204); // Jump target
     }
 
     #[test]
@@ -1188,7 +1323,7 @@ mod tests {
         let program: Vec<u8> = [
             assemble_addi(1, 0, 5),
             assemble_addi(2, 0, 5),
-            assemble_beq(1, 2, 8),  // Branch if x1 == x2 (should branch)
+            assemble_beq(1, 2, 8), // Branch if x1 == x2 (should branch)
         ]
         .iter()
         .flat_map(|i| i.to_le_bytes())
@@ -1207,7 +1342,7 @@ mod tests {
         let program: Vec<u8> = [
             assemble_addi(1, 0, 5),
             assemble_addi(2, 0, 10),
-            assemble_beq(1, 2, 8),  // Branch if x1 == x2 (should NOT branch)
+            assemble_beq(1, 2, 8), // Branch if x1 == x2 (should NOT branch)
         ]
         .iter()
         .flat_map(|i| i.to_le_bytes())
@@ -1224,9 +1359,9 @@ mod tests {
     fn test_load_store() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(1, 0, 0x42),    // x1 = 0x42
-            assemble_sw(0, 1, 0x100),      // mem[0x100] = x1
-            assemble_lw(2, 0, 0x100),      // x2 = mem[0x100]
+            assemble_addi(1, 0, 0x42), // x1 = 0x42
+            assemble_sw(0, 1, 0x100),  // mem[0x100] = x1
+            assemble_lw(2, 0, 0x100),  // x2 = mem[0x100]
         ]
         .iter()
         .flat_map(|i| i.to_le_bytes())
@@ -1337,7 +1472,7 @@ mod tests {
     fn test_sra() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(1, 0, -16),  // x1 = 0xFFFFFFF0
+            assemble_addi(1, 0, -16), // x1 = 0xFFFFFFF0
             assemble_addi(2, 0, 2),
             assemble_r(opcode::OP, 3, 0b101, 1, 2, 0x20), // SRA x3, x1, x2
         ]
@@ -1393,8 +1528,8 @@ mod tests {
     fn test_blt() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(1, 0, -5),  // x1 = -5 (signed)
-            assemble_addi(2, 0, 5),   // x2 = 5
+            assemble_addi(1, 0, -5),                    // x1 = -5 (signed)
+            assemble_addi(2, 0, 5),                     // x2 = 5
             assemble_b(opcode::BRANCH, 0b100, 1, 2, 8), // BLT x1, x2, 8
         ]
         .iter()
@@ -1412,8 +1547,8 @@ mod tests {
     fn test_bltu() {
         let mut cpu = Cpu::with_memory_size(4096);
         let program: Vec<u8> = [
-            assemble_addi(1, 0, -5),  // x1 = 0xFFFFFFFB (unsigned)
-            assemble_addi(2, 0, 5),   // x2 = 5
+            assemble_addi(1, 0, -5),                    // x1 = 0xFFFFFFFB (unsigned)
+            assemble_addi(2, 0, 5),                     // x2 = 5
             assemble_b(opcode::BRANCH, 0b110, 1, 2, 8), // BLTU x1, x2, 8
         ]
         .iter()
@@ -1432,7 +1567,7 @@ mod tests {
         let mut cpu = Cpu::with_memory_size(4096);
         // Store 0xFF at address 0x100
         cpu.memory.write_u8(0x100, 0xFF).unwrap();
-        
+
         let program: Vec<u8> = [
             assemble_i(opcode::LOAD, 1, 0b000, 0, 0x100), // LB x1, 0x100(x0)
         ]
@@ -1449,7 +1584,7 @@ mod tests {
     fn test_load_byte_unsigned() {
         let mut cpu = Cpu::with_memory_size(4096);
         cpu.memory.write_u8(0x100, 0xFF).unwrap();
-        
+
         let program: Vec<u8> = [
             assemble_i(opcode::LOAD, 1, 0b100, 0, 0x100), // LBU x1, 0x100(x0)
         ]
@@ -1476,11 +1611,11 @@ mod tests {
 
         cpu.load_program(0, &program).unwrap();
         cpu.enable_tracing();
-        
+
         cpu.step().unwrap();
         cpu.step().unwrap();
         cpu.step().unwrap();
-        
+
         let trace = cpu.take_trace().unwrap();
         assert_eq!(trace.len(), 3);
         assert_eq!(trace.rows[0].rd_val, 10);

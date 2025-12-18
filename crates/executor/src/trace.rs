@@ -3,8 +3,8 @@
 //! Each step of execution produces a TraceRow capturing the CPU state,
 //! instruction, and any memory operations.
 
-use serde::{Deserialize, Serialize};
 use crate::decode::DecodedInstr;
+use serde::{Deserialize, Serialize};
 
 /// Memory operation type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,17 +24,38 @@ pub enum MemOp {
     /// Store word (SW).
     StoreWord { addr: u32, value: u32 },
     /// Keccak256 hash operation (delegated to specialized circuit).
-    Keccak256 { input_ptr: u32, input_len: u32, output_ptr: u32 },
+    Keccak256 {
+        input_ptr: u32,
+        input_len: u32,
+        output_ptr: u32,
+    },
     /// ECRECOVER signature verification (delegated to specialized circuit).
     Ecrecover { input_ptr: u32, output_ptr: u32 },
     /// SHA-256 hash operation (delegated to specialized circuit).
-    Sha256 { message_ptr: usize, message_len: usize, digest_ptr: usize },
+    Sha256 {
+        message_ptr: usize,
+        message_len: usize,
+        digest_ptr: usize,
+    },
     /// RIPEMD-160 hash operation (delegated to specialized circuit).
-    Ripemd160 { message_ptr: usize, message_len: usize, digest_ptr: usize },
+    Ripemd160 {
+        message_ptr: usize,
+        message_len: usize,
+        digest_ptr: usize,
+    },
     /// Modular exponentiation (delegated to specialized circuit for RSA/crypto).
-    Modexp { base_ptr: usize, exp_ptr: usize, mod_ptr: usize, result_ptr: usize },
+    Modexp {
+        base_ptr: usize,
+        exp_ptr: usize,
+        mod_ptr: usize,
+        result_ptr: usize,
+    },
     /// Blake2b hash operation (delegated to specialized circuit).
-    Blake2b { message_ptr: usize, message_len: usize, digest_ptr: usize },
+    Blake2b {
+        message_ptr: usize,
+        message_len: usize,
+        digest_ptr: usize,
+    },
 }
 
 /// Flags indicating instruction class for AIR constraint selection.

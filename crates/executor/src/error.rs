@@ -12,10 +12,11 @@ pub enum ExecutorError {
     // === Unprovable Traps ===
     // These errors indicate operations that cannot be proven in our constraint system.
     // Programs containing these will fail during proving.
-
     /// ECALL instruction encountered - only specific syscalls are supported (0x1000=Keccak256, 93=exit).
     /// This is an unprovable trap that will cause prover failure.
-    #[error("Unprovable trap: ECALL (syscall {syscall_id}) at pc={pc:#x} - unsupported system call")]
+    #[error(
+        "Unprovable trap: ECALL (syscall {syscall_id}) at pc={pc:#x} - unsupported system call"
+    )]
     Ecall { pc: u32, syscall_id: u32 },
 
     /// EBREAK instruction encountered - debug breakpoints not supported.
@@ -36,10 +37,13 @@ pub enum ExecutorError {
     /// Unaligned memory access - words must be 4-byte aligned, halfwords 2-byte aligned.
     /// This is an unprovable trap that will cause prover failure.
     #[error("Unprovable trap: Unaligned {access_type} access at addr={addr:#x} (alignment required: {required} bytes)")]
-    UnalignedAccess { addr: u32, access_type: &'static str, required: u8 },
+    UnalignedAccess {
+        addr: u32,
+        access_type: &'static str,
+        required: u8,
+    },
 
     // === Execution Errors ===
-
     #[error("Invalid instruction at pc={pc:#x}: {bits:#010x}")]
     InvalidInstruction { pc: u32, bits: u32 },
 
@@ -53,7 +57,6 @@ pub enum ExecutorError {
     UnknownSyscall { pc: u32, syscall_code: u32 },
 
     // === Normal Termination ===
-
     #[error("Execution halted: reached max steps ({max_steps})")]
     MaxStepsReached { max_steps: u64 },
 

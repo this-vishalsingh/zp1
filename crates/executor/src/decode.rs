@@ -34,12 +34,12 @@ pub struct DecodedInstr {
 /// RISC-V instruction formats.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InstrFormat {
-    R,  // Register-register (ADD, SUB, MUL, etc.)
-    I,  // Immediate (ADDI, LOAD, JALR)
-    S,  // Store (SW, SH, SB)
-    B,  // Branch (BEQ, BNE, BLT, etc.)
-    U,  // Upper immediate (LUI, AUIPC)
-    J,  // Jump (JAL)
+    R, // Register-register (ADD, SUB, MUL, etc.)
+    I, // Immediate (ADDI, LOAD, JALR)
+    S, // Store (SW, SH, SB)
+    B, // Branch (BEQ, BNE, BLT, etc.)
+    U, // Upper immediate (LUI, AUIPC)
+    J, // Jump (JAL)
 }
 
 /// Opcode constants for RV32IM.
@@ -120,7 +120,7 @@ pub mod op_funct3 {
 
 /// funct3 values for SYSTEM instructions
 pub mod system_funct3 {
-    pub const PRIV: u8 = 0b000;      // ECALL, EBREAK, WFI, MRET, etc.
+    pub const PRIV: u8 = 0b000; // ECALL, EBREAK, WFI, MRET, etc.
     pub const CSRRW: u8 = 0b001;
     pub const CSRRS: u8 = 0b010;
     pub const CSRRC: u8 = 0b011;
@@ -214,8 +214,12 @@ impl DecodedInstr {
     /// Check if this is a NOP (ADDI x0, x0, 0).
     #[inline]
     pub fn is_nop(&self) -> bool {
-        self.bits == 0x00000013 || 
-        (self.opcode == opcode::OP_IMM && self.funct3 == 0 && self.rd == 0 && self.rs1 == 0 && self.imm == 0)
+        self.bits == 0x00000013
+            || (self.opcode == opcode::OP_IMM
+                && self.funct3 == 0
+                && self.rd == 0
+                && self.rs1 == 0
+                && self.imm == 0)
     }
 
     /// Check if this is an M-extension instruction (multiply/divide).
@@ -303,7 +307,13 @@ impl DecodedInstr {
                 _ => "STORE?",
             },
             opcode::OP_IMM => match self.funct3 {
-                op_imm_funct3::ADDI => if self.is_nop() { "NOP" } else { "ADDI" },
+                op_imm_funct3::ADDI => {
+                    if self.is_nop() {
+                        "NOP"
+                    } else {
+                        "ADDI"
+                    }
+                }
                 op_imm_funct3::SLTI => "SLTI",
                 op_imm_funct3::SLTIU => "SLTIU",
                 op_imm_funct3::XORI => "XORI",
@@ -311,8 +321,12 @@ impl DecodedInstr {
                 op_imm_funct3::ANDI => "ANDI",
                 op_imm_funct3::SLLI => "SLLI",
                 op_imm_funct3::SRLI_SRAI => {
-                    if self.funct7 & 0x20 != 0 { "SRAI" } else { "SRLI" }
-                },
+                    if self.funct7 & 0x20 != 0 {
+                        "SRAI"
+                    } else {
+                        "SRLI"
+                    }
+                }
                 _ => "OP_IMM?",
             },
             opcode::OP => {
@@ -343,16 +357,14 @@ impl DecodedInstr {
                         _ => "OP?",
                     }
                 }
-            },
+            }
             opcode::SYSTEM => match self.funct3 {
-                system_funct3::PRIV => {
-                    match self.imm as u32 & 0xFFF {
-                        0x000 => "ECALL",
-                        0x001 => "EBREAK",
-                        0x105 => "WFI",
-                        0x302 => "MRET",
-                        _ => "PRIV?",
-                    }
+                system_funct3::PRIV => match self.imm as u32 & 0xFFF {
+                    0x000 => "ECALL",
+                    0x001 => "EBREAK",
+                    0x105 => "WFI",
+                    0x302 => "MRET",
+                    _ => "PRIV?",
                 },
                 system_funct3::CSRRW => "CSRRW",
                 system_funct3::CSRRS => "CSRRS",
@@ -363,8 +375,12 @@ impl DecodedInstr {
                 _ => "SYSTEM?",
             },
             opcode::MISC_MEM => {
-                if self.funct3 == 0 { "FENCE" } else { "FENCE.I" }
-            },
+                if self.funct3 == 0 {
+                    "FENCE"
+                } else {
+                    "FENCE.I"
+                }
+            }
             _ => "???",
         }
     }

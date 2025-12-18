@@ -12,7 +12,7 @@ impl MemoryAir {
     /// where fingerprint = α³·addr + α²·value + α·timestamp + is_write
     ///
     /// This constraint checks the running sum increment is correct.
-    /// 
+    ///
     /// # Arguments
     /// * `addr` - Memory address
     /// * `value` - Memory value (32-bit)
@@ -22,7 +22,7 @@ impl MemoryAir {
     /// * `curr_sum` - Running sum at current row
     /// * `alpha` - Challenge for fingerprint combination
     /// * `beta` - Challenge for denominator shift
-    /// 
+    ///
     /// # Returns
     /// Constraint: (fingerprint + beta) * (curr_sum - prev_sum) - 1 = 0
     #[inline]
@@ -40,7 +40,7 @@ impl MemoryAir {
         let alpha2 = alpha * alpha;
         let alpha3 = alpha2 * alpha;
         let fingerprint = alpha3 * addr + alpha2 * value + alpha * timestamp + is_write;
-        
+
         // LogUp increment: 1/(fingerprint + beta)
         // Constraint: (fingerprint + beta) * (curr_sum - prev_sum) = 1
         // Rearranged: (fingerprint + beta) * (curr_sum - prev_sum) - 1 = 0
