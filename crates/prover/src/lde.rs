@@ -8,7 +8,7 @@
 //! 2. Extend coefficients to larger domain
 //! 3. Evaluate on extended domain (FFT)
 
-use zp1_primitives::{M31, CircleFFT, CirclePoint};
+use zp1_primitives::{M31, FastCircleFFT, CirclePoint};
 
 /// LDE domain configuration.
 #[derive(Clone, Debug)]
@@ -20,9 +20,9 @@ pub struct LdeDomain {
     /// Log2 of the LDE domain size.
     pub log_domain_size: usize,
     /// Circle FFT for trace domain.
-    trace_fft: CircleFFT,
+    trace_fft: FastCircleFFT,
     /// Circle FFT for extended domain.
-    extended_fft: CircleFFT,
+    extended_fft: FastCircleFFT,
 }
 
 impl LdeDomain {
@@ -39,8 +39,8 @@ impl LdeDomain {
             log_trace_len,
             blowup,
             log_domain_size,
-            trace_fft: CircleFFT::new(log_trace_len),
-            extended_fft: CircleFFT::new(log_domain_size),
+            trace_fft: FastCircleFFT::new(log_trace_len),
+            extended_fft: FastCircleFFT::new(log_domain_size),
         }
     }
 
@@ -85,12 +85,12 @@ impl LdeDomain {
     }
 
     /// Get trace FFT.
-    pub fn trace_fft(&self) -> &CircleFFT {
+    pub fn trace_fft(&self) -> &FastCircleFFT {
         &self.trace_fft
     }
 
     /// Get extended FFT.
-    pub fn extended_fft(&self) -> &CircleFFT {
+    pub fn extended_fft(&self) -> &FastCircleFFT {
         &self.extended_fft
     }
 }

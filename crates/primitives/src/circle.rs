@@ -650,6 +650,23 @@ impl CircleTwiddles {
         
         &self.twiddles[start..(start + layer_size.max(1))]
     }
+
+    /// Get inverse twiddles for a specific layer.
+    fn layer_itwiddles(&self, layer: usize) -> &[M31] {
+        if layer >= self.log_size {
+            return &[];
+        }
+
+        // Calculate start index for this layer
+        let mut start = 0;
+        let mut layer_size = 1 << (self.log_size - 1);
+        for _ in 0..layer {
+            start += layer_size;
+            layer_size /= 2;
+        }
+
+        &self.itwiddles[start..(start + layer_size.max(1))]
+    }
 }
 
 /// Fast Circle FFT implementation.
@@ -678,12 +695,82 @@ impl FastCircleFFT {
     
     /// Forward FFT: polynomial coefficients → evaluations.
     pub fn fft(&self, coeffs: &[M31]) -> Vec<M31> {
-        self.inner.fft(coeffs)
+        let n = 1 << self.twiddles.log_size;
+        let half = n / 2;
+
+        // Pad coefficients to half domain size
+        let mut values = coeffs.to_vec();
+        values.resize(half, M31::ZERO);
+
+        // Duplicate for full domain (twin points have same value for x-based polynomials)
+        values.extend(values.clone());
+
+        // Apply butterfly passes
+        for layer in (0..self.twiddles.log_size).rev() {
+            let layer_twiddles = self.twiddles.layer_twiddles(self.twiddles.log_size - 1 - layer);
+            let half_size = 1 << layer;
+            let num_groups = n >> (layer + 1);
+
+            for h in 0..num_groups {
+                for l in 0..half_size {
+                    let idx0 = (h << (layer + 1)) + l;
+                    let idx1 = idx0 + half_size;
+
+                    // Safety: Indices are within bounds by construction
+                    let val0 = values[idx0];
+                    let val1 = values[idx1];
+
+                    // Twiddle depends on offset l within the group
+                    let twid = layer_twiddles[l];
+
+                    // Inlined butterfly to avoid borrowing issues
+                    let tmp = val1 * twid;
+                    values[idx1] = val0 - tmp;
+                    values[idx0] = val0 + tmp;
+                }
+            }
+        }
+
+        values
     }
     
     /// Inverse FFT: evaluations → polynomial coefficients.
     pub fn ifft(&self, evals: &[M31]) -> Vec<M31> {
-        self.inner.ifft(evals)
+        let n = 1 << self.twiddles.log_size;
+        let half = n / 2;
+
+        assert_eq!(evals.len(), n, "Evaluation count must match domain size");
+
+        let mut values = evals.to_vec();
+
+        // Apply inverse butterfly passes
+        for layer in 0..self.twiddles.log_size {
+            let layer_itwiddles = self.twiddles.layer_itwiddles(self.twiddles.log_size - 1 - layer);
+            let half_size = 1 << layer;
+            let num_groups = n >> (layer + 1);
+
+            for h in 0..num_groups {
+                for l in 0..half_size {
+                    let idx0 = (h << (layer + 1)) + l;
+                    let idx1 = idx0 + half_size;
+
+                    let val0 = values[idx0];
+                    let val1 = values[idx1];
+
+                    // Twiddle depends on offset l within the group
+                    let itwid = layer_itwiddles[l];
+
+                    // Inlined ibutterfly
+                    let tmp = val0;
+                    values[idx0] = tmp + val1;
+                    values[idx1] = (tmp - val1) * itwid;
+                }
+            }
+        }
+
+        // Normalize by n and take first half
+        let n_inv = M31::new(n as u32).inv();
+        values.iter().take(half).map(|&v| v * n_inv).collect()
     }
     
     /// Low-degree extension using FFT.
@@ -704,6 +791,11 @@ impl FastCircleFFT {
     /// Get the domain.
     pub fn domain(&self) -> &CircleDomain {
         self.inner.domain()
+    }
+
+    /// Get point in the domain.
+    pub fn get_domain_point(&self, index: usize) -> CirclePoint {
+        self.inner.get_domain_point(index)
     }
 }
 

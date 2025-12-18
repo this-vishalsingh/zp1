@@ -6,7 +6,6 @@
 //! # Supported Backends
 //!
 //! - **Metal**: Apple Silicon GPUs (macOS/iOS)
-//! - **CUDA**: NVIDIA GPUs (requires cuda feature)
 //! - **CPU**: Fallback implementation (always available)
 //!
 //! # Usage
@@ -31,7 +30,6 @@ mod operations;
 #[cfg(target_os = "macos")]
 pub mod metal;
 
-pub mod cuda;
 
 pub use backend::{GpuBackend, GpuDevice, GpuError, GpuMemory, CpuBackend};
 pub use operations::{GpuNtt, GpuPolynomial, GpuMerkle};
@@ -39,13 +37,10 @@ pub use operations::{GpuNtt, GpuPolynomial, GpuMerkle};
 #[cfg(target_os = "macos")]
 pub use metal::{MetalBackend, MetalDevice, MetalMemory, METAL_M31_SHADERS};
 
-pub use cuda::{CudaBackend, CudaDevice, CudaMemory, CudaDeviceInfo, CUDA_M31_KERNELS, query_cuda_devices};
 
 /// GPU device type enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceType {
-    /// NVIDIA CUDA device
-    Cuda,
     /// Apple Metal device
     Metal,
     /// CPU fallback (no GPU)
@@ -55,7 +50,6 @@ pub enum DeviceType {
 impl std::fmt::Display for DeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeviceType::Cuda => write!(f, "CUDA"),
             DeviceType::Metal => write!(f, "Metal"),
             DeviceType::Cpu => write!(f, "CPU"),
         }
@@ -93,7 +87,7 @@ pub fn detect_devices() -> Vec<DeviceInfo> {
 /// Information about a GPU device.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
-    /// Type of device (CUDA, Metal, CPU)
+    /// Type of device (Metal, CPU)
     pub device_type: DeviceType,
     /// Device name
     pub name: String,
@@ -113,7 +107,7 @@ fn num_cpus() -> usize {
 
 /// Get the best available GPU backend.
 /// 
-/// Priority: Metal (macOS) > CUDA > CPU
+/// Priority: Metal (macOS) > CPU
 /// 
 /// # Returns
 /// A boxed GpuBackend implementation.
@@ -122,15 +116,6 @@ pub fn get_backend() -> Result<Box<dyn GpuBackend>, GpuError> {
     #[cfg(target_os = "macos")]
     {
         match MetalBackend::new() {
-            Ok(backend) => return Ok(Box::new(backend)),
-            Err(_) => {} // Fall through to next option
-        }
-    }
-    
-    // Try CUDA (would fail without cuda feature)
-    #[cfg(feature = "cuda")]
-    {
-        match CudaBackend::new(0) {
             Ok(backend) => return Ok(Box::new(backend)),
             Err(_) => {} // Fall through to CPU
         }
@@ -150,19 +135,6 @@ pub fn get_backend_for_device(device_type: DeviceType) -> Result<Box<dyn GpuBack
         DeviceType::Metal => Err(GpuError::DeviceNotAvailable(
             "Metal is only available on macOS".to_string()
         )),
-        
-        DeviceType::Cuda => {
-            #[cfg(feature = "cuda")]
-            {
-                Ok(Box::new(CudaBackend::new(0)?))
-            }
-            #[cfg(not(feature = "cuda"))]
-            {
-                Err(GpuError::DeviceNotAvailable(
-                    "CUDA support not compiled. Enable 'cuda' feature.".to_string()
-                ))
-            }
-        }
         
         DeviceType::Cpu => Ok(Box::new(CpuBackend::default())),
     }
@@ -184,7 +156,6 @@ mod tests {
     
     #[test]
     fn test_device_type_display() {
-        assert_eq!(format!("{}", DeviceType::Cuda), "CUDA");
         assert_eq!(format!("{}", DeviceType::Metal), "Metal");
         assert_eq!(format!("{}", DeviceType::Cpu), "CPU");
     }
