@@ -8,5 +8,5 @@
 //! 5. Verify the proof
 
 pub mod encode;
-pub mod programs;
 pub mod pipeline;
+pub mod programs;

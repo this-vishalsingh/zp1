@@ -15,11 +15,11 @@ use crate::encode;
 /// ```
 pub fn counting_program() -> Vec<u32> {
     vec![
-        encode::addi(1, 0, 0),    // x1 = 0
-        encode::addi(2, 0, 5),    // x2 = 5
-        encode::addi(1, 1, 1),    // x1 += 1 (loop body)
-        encode::bne(1, 2, -4),    // if x1 != x2, jump back 4 bytes
-        encode::ecall(),          // halt
+        encode::addi(1, 0, 0), // x1 = 0
+        encode::addi(2, 0, 5), // x2 = 5
+        encode::addi(1, 1, 1), // x1 += 1 (loop body)
+        encode::bne(1, 2, -4), // if x1 != x2, jump back 4 bytes
+        encode::ecall(),       // halt
     ]
 }
 
@@ -40,26 +40,26 @@ pub fn counting_program() -> Vec<u32> {
 /// ```
 pub fn fibonacci_program() -> Vec<u32> {
     vec![
-        encode::addi(1, 0, 0),    // x1 = 0 (fib_prev)
-        encode::addi(2, 0, 1),    // x2 = 1 (fib_curr)
-        encode::addi(3, 0, 6),    // x3 = 6 iterations
-        encode::add(4, 1, 2),     // x4 = x1 + x2
-        encode::add(1, 2, 0),     // x1 = x2 (shift)
-        encode::add(2, 4, 0),     // x2 = x4 (shift)
-        encode::addi(3, 3, -1),   // x3 -= 1
-        encode::bne(3, 0, -16),   // if x3 != 0, loop back 16 bytes
-        encode::ecall(),          // halt
+        encode::addi(1, 0, 0),  // x1 = 0 (fib_prev)
+        encode::addi(2, 0, 1),  // x2 = 1 (fib_curr)
+        encode::addi(3, 0, 6),  // x3 = 6 iterations
+        encode::add(4, 1, 2),   // x4 = x1 + x2
+        encode::add(1, 2, 0),   // x1 = x2 (shift)
+        encode::add(2, 4, 0),   // x2 = x4 (shift)
+        encode::addi(3, 3, -1), // x3 -= 1
+        encode::bne(3, 0, -16), // if x3 != 0, loop back 16 bytes
+        encode::ecall(),        // halt
     ]
 }
 
 /// Simple arithmetic program.
 pub fn arithmetic_program() -> Vec<u32> {
     vec![
-        encode::addi(1, 0, 10),   // x1 = 10
-        encode::addi(2, 0, 20),   // x2 = 20
-        encode::add(3, 1, 2),     // x3 = x1 + x2 = 30
-        encode::sub(4, 2, 1),     // x4 = x2 - x1 = 10
-        encode::ecall(),          // halt
+        encode::addi(1, 0, 10), // x1 = 10
+        encode::addi(2, 0, 20), // x2 = 20
+        encode::add(3, 1, 2),   // x3 = x1 + x2 = 30
+        encode::sub(4, 2, 1),   // x4 = x2 - x1 = 10
+        encode::ecall(),        // halt
     ]
 }
 

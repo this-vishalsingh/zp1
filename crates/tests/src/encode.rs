@@ -23,7 +23,14 @@ pub fn beq(rs1: u32, rs2: u32, offset: i32) -> u32 {
     let imm11 = (offset >> 11) & 1;
     let imm10_5 = (offset >> 5) & 0x3F;
     let imm4_1 = (offset >> 1) & 0xF;
-    (imm12 << 31) | (imm10_5 << 25) | (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (imm4_1 << 8) | (imm11 << 7) | 0b1100011
+    (imm12 << 31)
+        | (imm10_5 << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (0b000 << 12)
+        | (imm4_1 << 8)
+        | (imm11 << 7)
+        | 0b1100011
 }
 
 /// BNE rs1, rs2, offset - B-type encoding
@@ -33,7 +40,14 @@ pub fn bne(rs1: u32, rs2: u32, offset: i32) -> u32 {
     let imm11 = (offset >> 11) & 1;
     let imm10_5 = (offset >> 5) & 0x3F;
     let imm4_1 = (offset >> 1) & 0xF;
-    (imm12 << 31) | (imm10_5 << 25) | (rs2 << 20) | (rs1 << 15) | (0b001 << 12) | (imm4_1 << 8) | (imm11 << 7) | 0b1100011
+    (imm12 << 31)
+        | (imm10_5 << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (0b001 << 12)
+        | (imm4_1 << 8)
+        | (imm11 << 7)
+        | 0b1100011
 }
 
 /// JAL rd, offset - J-type encoding
@@ -65,7 +79,7 @@ mod tests {
         // ADDI x1, x0, 5
         let instr = addi(1, 0, 5);
         assert_eq!(instr & 0x7F, 0b0010011); // opcode
-        assert_eq!((instr >> 7) & 0x1F, 1);  // rd
+        assert_eq!((instr >> 7) & 0x1F, 1); // rd
         assert_eq!((instr >> 15) & 0x1F, 0); // rs1
         assert_eq!((instr >> 20) & 0xFFF, 5); // imm
     }
@@ -75,7 +89,7 @@ mod tests {
         // ADD x3, x1, x2
         let instr = add(3, 1, 2);
         assert_eq!(instr & 0x7F, 0b0110011); // opcode
-        assert_eq!((instr >> 7) & 0x1F, 3);  // rd
+        assert_eq!((instr >> 7) & 0x1F, 3); // rd
         assert_eq!((instr >> 15) & 0x1F, 1); // rs1
         assert_eq!((instr >> 20) & 0x1F, 2); // rs2
     }

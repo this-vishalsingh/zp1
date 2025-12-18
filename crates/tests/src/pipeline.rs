@@ -16,7 +16,8 @@ pub fn execute_and_trace(program: &[u8], max_steps: usize) -> TraceColumns {
     // Create CPU and load program
     let mut cpu = Cpu::new();
     cpu.enable_tracing();
-    cpu.load_program(0x1000, program).expect("Failed to load program");
+    cpu.load_program(0x1000, program)
+        .expect("Failed to load program");
 
     // Execute until halt or max steps
     for _ in 0..max_steps {
@@ -72,7 +73,7 @@ mod tests {
     fn test_prove_simple_trace() {
         // Build a minimal trace (just a counting column)
         let trace_len = 16; // Small power of 2
-        // Create 77 columns to satisfy CpuTraceRow::from_slice
+                            // Create 77 columns to satisfy CpuTraceRow::from_slice
         let mut columns = vec![vec![M31::ZERO; trace_len]; 77];
 
         // Fill first column with incrementing values
@@ -95,14 +96,25 @@ mod tests {
         let proof = prover.prove(columns, &public_inputs);
 
         // Check proof structure
-        assert_ne!(proof.trace_commitment, [0u8; 32], "Trace commitment should be non-zero");
-        assert_ne!(proof.composition_commitment, [0u8; 32], "Composition commitment should be non-zero");
-        assert!(!proof.fri_proof.layer_commitments.is_empty(), "Should have FRI layers");
+        assert_ne!(
+            proof.trace_commitment, [0u8; 32],
+            "Trace commitment should be non-zero"
+        );
+        assert_ne!(
+            proof.composition_commitment, [0u8; 32],
+            "Composition commitment should be non-zero"
+        );
+        assert!(
+            !proof.fri_proof.layer_commitments.is_empty(),
+            "Should have FRI layers"
+        );
         assert_eq!(proof.query_proofs.len(), 10, "Should have 10 query proofs");
 
-        println!("Generated proof with {} FRI layers, {} queries",
-                 proof.fri_proof.layer_commitments.len(),
-                 proof.query_proofs.len());
+        println!(
+            "Generated proof with {} FRI layers, {} queries",
+            proof.fri_proof.layer_commitments.len(),
+            proof.query_proofs.len()
+        );
     }
 
     #[test]
@@ -151,8 +163,14 @@ mod tests {
         assert_eq!(proof.query_proofs.len(), 15);
 
         println!("Full pipeline test passed!");
-        println!("  Trace commitment: {:02x?}...", &proof.trace_commitment[..4]);
-        println!("  Composition commitment: {:02x?}...", &proof.composition_commitment[..4]);
+        println!(
+            "  Trace commitment: {:02x?}...",
+            &proof.trace_commitment[..4]
+        );
+        println!(
+            "  Composition commitment: {:02x?}...",
+            &proof.composition_commitment[..4]
+        );
         println!("  FRI layers: {}", proof.fri_proof.layer_commitments.len());
         println!("  Query proofs: {}", proof.query_proofs.len());
     }
@@ -184,8 +202,8 @@ mod tests {
 
     #[test]
     fn test_fri_folding() {
-        use zp1_prover::fri::{FriConfig, FriProver};
         use zp1_prover::channel::ProverChannel;
+        use zp1_prover::fri::{FriConfig, FriProver};
 
         // Create polynomial evaluations
         let n = 32;
@@ -206,12 +224,17 @@ mod tests {
 
         // Check we got layers
         assert!(!layers.is_empty(), "Should have FRI layers");
-        assert!(!proof.layer_commitments.is_empty(), "Should have commitments");
+        assert!(
+            !proof.layer_commitments.is_empty(),
+            "Should have commitments"
+        );
         assert!(!proof.final_poly.is_empty(), "Should have final polynomial");
 
-        println!("FRI produced {} layers, final poly degree {}", 
-                 layers.len(), 
-                 proof.final_poly.len() - 1);
+        println!(
+            "FRI produced {} layers, final poly degree {}",
+            layers.len(),
+            proof.final_poly.len() - 1
+        );
     }
 
     #[test]
@@ -254,7 +277,7 @@ mod tests {
         println!("Circle FFT basic test: domain size = {}", domain.size);
         println!("FFT created with log_size = {}", log_size);
         assert!(coeffs.len() == 16);
-        
+
         // The FFT struct exists and can be created
         drop(fft); // Just verify construction works
     }
@@ -284,7 +307,10 @@ mod tests {
         let proof = prover.prove(columns, &public_inputs);
 
         assert_ne!(proof.trace_commitment, [0u8; 32]);
-        println!("Large trace (2^{} = {} rows) proved successfully!", log_size, trace_len);
+        println!(
+            "Large trace (2^{} = {} rows) proved successfully!",
+            log_size, trace_len
+        );
         println!("  {} FRI layers", proof.fri_proof.layer_commitments.len());
         println!("  {} query proofs", proof.query_proofs.len());
     }
@@ -308,7 +334,10 @@ mod tests {
         let padded_len = trace_len.next_power_of_two();
         let log_trace_len = padded_len.trailing_zeros() as usize;
 
-        println!("Fibonacci trace: {} rows (padded to {})", trace_len, padded_len);
+        println!(
+            "Fibonacci trace: {} rows (padded to {})",
+            trace_len, padded_len
+        );
 
         // 3. Configure prover with appropriate size
         let config = StarkConfig {
@@ -333,7 +362,7 @@ mod tests {
         // 5. Verify proof structure
         assert_ne!(proof.trace_commitment, [0u8; 32]);
         assert!(!proof.fri_proof.layer_commitments.is_empty());
-        
+
         println!("Fibonacci pipeline test passed!");
         println!("  Commitment: {:02x?}...", &proof.trace_commitment[..4]);
     }
