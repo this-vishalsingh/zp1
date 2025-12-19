@@ -22,6 +22,19 @@ serde_json = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
 
+# Plonky3 dependencies for optimized FRI and polynomial operations
+p3-mersenne-31 = { workspace = true }
+p3-field = { workspace = true }
+p3-circle = { workspace = true }
+p3-fri = { workspace = true }
+p3-commit = { workspace = true }
+p3-challenger = { workspace = true }
+p3-symmetric = { workspace = true }
+p3-merkle-tree = { workspace = true }
+p3-matrix = { workspace = true }
+p3-dft = { workspace = true }
+p3-util = { workspace = true }
+
 # Optional Metal GPU support (macOS only)
 metal = { version = "0.28", optional = true }
 

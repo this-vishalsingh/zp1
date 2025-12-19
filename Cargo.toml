@@ -48,3 +48,10 @@ p3-field = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
 p3-mersenne-31 = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
 p3-dft = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
 p3-matrix = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-circle = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-fri = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-commit = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-challenger = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3", branch = "main" }

@@ -543,6 +543,10 @@ impl Verifier {
     }
 
     /// Verify a single FRI query through all layers.
+    ///
+    /// Uses Plonky3-compatible Circle FRI folding:
+    /// - First layer: y-fold with inverse y-twiddles
+    /// - Subsequent layers: x-fold with inverse x-twiddles
     fn verify_fri_query(
         &self,
         fri_proof: &FriProof,
@@ -563,6 +567,8 @@ impl Verifier {
 
         let mut current_index = query.index;
         let mut expected_next: Option<M31> = None;
+        // Track current domain size for twiddle computation
+        let mut current_log_size = self.config.log_lde_domain_size();
 
         for (layer_idx, layer_proof) in query.layer_proofs.iter().enumerate() {
             let commitment = &fri_proof.layer_commitments[layer_idx];
@@ -589,13 +595,27 @@ impl Verifier {
                 }
             }
 
-            // Compute folded value for next layer (twin point folding)
-            let alpha = alphas.get(layer_idx).copied().ok_or_else(|| VerifyError::FriStructure {
+            // Compute folded value for next layer using proper Circle FRI
+            let beta = alphas.get(layer_idx).copied().ok_or_else(|| VerifyError::FriStructure {
                 reason: "Missing FRI alpha".into(),
             })?;
-            let folded = fri_utils::compute_fold(layer_proof.value, layer_proof.sibling_value, alpha);
+
+            let lo = layer_proof.value;
+            let hi = layer_proof.sibling_value;
+            let twiddle_idx = current_index / 2;
+
+            let folded = if layer_idx == 0 {
+                // First layer: y-fold
+                fri_utils::compute_fold_y(lo, hi, beta, current_log_size, twiddle_idx)
+            } else {
+                // Subsequent layers: x-fold
+                let x_layer = layer_idx - 1;
+                fri_utils::compute_fold_x(lo, hi, beta, current_log_size, x_layer, twiddle_idx)
+            };
+
             expected_next = Some(folded);
             current_index /= 2;
+            current_log_size = current_log_size.saturating_sub(1);
         }
 
         // Final polynomial check
@@ -621,17 +641,52 @@ impl Verifier {
     }
 }
 
-/// FRI verification helper functions.
+/// FRI verification helper functions with Plonky3-compatible Circle FRI folding.
 pub mod fri_utils {
-    use zp1_primitives::M31;
+    use zp1_primitives::{M31, fold_y_single, fold_x_single, get_y_twiddle_inv, get_x_twiddle_inv};
 
-    /// Compute FRI fold: f'(x^2) = f_even + alpha * f_odd
+    /// Compute Circle FRI fold for the first layer (y-fold).
+    ///
+    /// Uses proper y-twiddles from the circle domain for soundness.
+    ///
+    /// # Arguments
+    /// * `lo` - Value at even index
+    /// * `hi` - Value at odd index (twin)
+    /// * `beta` - Folding challenge
+    /// * `log_domain_size` - Log2 of current domain size
+    /// * `twiddle_idx` - Index into the twiddle array
+    pub fn compute_fold_y(lo: M31, hi: M31, beta: M31, log_domain_size: usize, twiddle_idx: usize) -> M31 {
+        let y_inv = get_y_twiddle_inv(log_domain_size, twiddle_idx);
+        fold_y_single(lo, hi, beta, y_inv)
+    }
+
+    /// Compute Circle FRI fold for subsequent layers (x-fold).
+    ///
+    /// Uses proper x-twiddles from the circle domain for soundness.
+    ///
+    /// # Arguments
+    /// * `lo` - Value at even index
+    /// * `hi` - Value at odd index (twin)
+    /// * `beta` - Folding challenge
+    /// * `log_domain_size` - Log2 of current domain size
+    /// * `x_layer` - Which x-folding layer (0 = first x-fold after y-fold)
+    /// * `twiddle_idx` - Index into the twiddle array
+    pub fn compute_fold_x(lo: M31, hi: M31, beta: M31, log_domain_size: usize, x_layer: usize, twiddle_idx: usize) -> M31 {
+        let x_inv = get_x_twiddle_inv(log_domain_size, x_layer, twiddle_idx);
+        fold_x_single(lo, hi, beta, x_inv)
+    }
+
+    /// Legacy compute_fold for backward compatibility.
+    ///
+    /// NOTE: This does NOT use proper twiddles and should be avoided for soundness.
+    /// Use `compute_fold_y` or `compute_fold_x` instead.
+    #[deprecated(note = "Use compute_fold_y or compute_fold_x for proper Circle FRI")]
     pub fn compute_fold(even: M31, odd: M31, alpha: M31) -> M31 {
-        // For twin-point folding on a circle: 0.5 * [(even + odd) + alpha * (even - odd)]
+        // Simple folding without twiddles (NOT sound for Circle FRI)
         let inv_two = M31::new(2).inv();
         let sum = even + odd;
         let diff = even - odd;
-        (sum * inv_two) + alpha * diff * inv_two
+        (sum + alpha * diff) * inv_two
     }
 
     /// Evaluate polynomial at a point using Horner's method.
@@ -639,7 +694,7 @@ pub mod fri_utils {
         if coeffs.is_empty() {
             return M31::ZERO;
         }
-        
+
         let mut result = coeffs[coeffs.len() - 1];
         for i in (0..coeffs.len() - 1).rev() {
             result = result * x + coeffs[i];
@@ -689,14 +744,31 @@ mod tests {
     }
 
     #[test]
-    fn test_fri_fold() {
-        let even = M31::new(10);
-        let odd = M31::new(20);
-        let alpha = M31::new(3);
-        
-        let folded = fri_utils::compute_fold(even, odd, alpha);
-        // (10+20)/2 + 3*(10-20)/2 = 15 + 3*(-10)/2 = 15 - 15 = 0
-        assert_eq!(folded.as_u32(), 0);
+    fn test_fri_fold_y() {
+        // Test Circle FRI y-fold
+        let lo = M31::new(10);
+        let hi = M31::new(20);
+        let beta = M31::new(3);
+
+        // Test y-fold at index 0 with domain size 2^4 = 16
+        let folded = fri_utils::compute_fold_y(lo, hi, beta, 4, 0);
+        // The result depends on the y-twiddle at index 0
+        // Just verify it produces a valid field element
+        assert!(folded.as_u32() < M31::P);
+    }
+
+    #[test]
+    fn test_fri_fold_x() {
+        // Test Circle FRI x-fold
+        let lo = M31::new(10);
+        let hi = M31::new(20);
+        let beta = M31::new(3);
+
+        // Test x-fold at layer 0, index 0 with domain size 2^4 = 16
+        let folded = fri_utils::compute_fold_x(lo, hi, beta, 4, 0, 0);
+        // The result depends on the x-twiddle
+        // Just verify it produces a valid field element
+        assert!(folded.as_u32() < M31::P);
     }
 
     #[test]

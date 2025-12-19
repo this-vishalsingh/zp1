@@ -12,15 +12,19 @@
 //!
 //! Using these can provide 2-8x speedups for field-heavy operations.
 //!
-//! # DFT Support
-//! 
-//! The `p3_fast_dft` function provides O(n log n) FFT using Plonky3's Radix2Dit.
+//! # Circle STARKs Support
+//!
+//! This module provides interop with Plonky3's Circle STARKs implementation,
+//! enabling O(n log n) Circle FFT operations with SIMD acceleration.
 
 use crate::field::M31;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_field::extension::Complex;
 pub use p3_dft::TwoAdicSubgroupDft;
 pub use p3_mersenne_31::{Mersenne31 as P3M31, Mersenne31ComplexRadix2Dit};
+
+// Re-export Circle STARKs types for direct usage
+pub use p3_circle::{CircleDomain as P3CircleDomain, CircleEvaluations as P3CircleEvaluations};
 
 /// Convert ZP1 M31 to Plonky3 Mersenne31.
 #[inline]

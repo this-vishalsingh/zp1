@@ -9,15 +9,22 @@
 //! 2. Committing to the folded polynomial
 //! 3. Repeating until degree is small enough to send directly
 //!
-//! # Circle FRI Folding
+//! # Circle FRI Folding (Plonky3-compatible)
 //!
-//! For Circle STARKs, folding uses the twin-coset structure:
-//! - Points come in pairs (x, y) and (x, -y)
-//! - f_folded(x) = (f(x,y) + f(x,-y))/2 + α · (f(x,y) - f(x,-y))/(2y)
+//! For Circle STARKs, folding uses proper twiddle factors from the circle domain:
+//! - **First layer (y-fold)**: Uses inverse y-coordinates as twiddles
+//!   `f_folded[i] = (lo + hi) / 2 + β * (lo - hi) * y_inv[i] / 2`
+//! - **Subsequent layers (x-fold)**: Uses inverse x-coordinates as twiddles
+//!   `f_folded[i] = (lo + hi) / 2 + β * (lo - hi) * x_inv[i] / 2`
 //!
-//! This halves both the domain size and polynomial degree.
+//! This matches Plonky3's Circle FRI implementation for interoperability and
+//! uses batch inversion for O(n) twiddle computation instead of O(n) inversions.
 
-use zp1_primitives::M31;
+use zp1_primitives::{
+    M31,
+    compute_y_twiddle_inverses, compute_x_twiddle_inverses,
+    fold_y, fold_x,
+};
 use crate::channel::ProverChannel;
 use crate::commitment::MerkleTree;
 
@@ -155,17 +162,47 @@ pub struct FriLayerQueryProof {
 }
 
 /// FRI prover implementing the commit and query phases.
+///
+/// Uses Plonky3-compatible Circle FRI folding with precomputed twiddles
+/// for optimal performance (batch inversion instead of per-element inversion).
 pub struct FriProver {
     config: FriConfig,
+    /// Precomputed inverse y-twiddles for first fold layer.
+    y_twiddle_invs: Vec<M31>,
+    /// Precomputed inverse x-twiddles for subsequent fold layers.
+    x_twiddle_invs: Vec<Vec<M31>>,
 }
 
 impl FriProver {
     /// Create a new FRI prover with the given configuration.
+    ///
+    /// Precomputes all twiddle factors using batch inversion for efficiency.
     pub fn new(config: FriConfig) -> Self {
-        Self { config }
+        // Precompute y-twiddles for the first fold
+        let y_twiddle_invs = if config.log_domain_size >= 1 {
+            compute_y_twiddle_inverses(config.log_domain_size)
+        } else {
+            vec![]
+        };
+
+        // Precompute x-twiddles for subsequent folds
+        let num_x_layers = config.num_layers().saturating_sub(1);
+        let x_twiddle_invs: Vec<Vec<M31>> = (0..num_x_layers)
+            .map(|layer| compute_x_twiddle_inverses(config.log_domain_size, layer))
+            .collect();
+
+        Self {
+            config,
+            y_twiddle_invs,
+            x_twiddle_invs,
+        }
     }
 
     /// Commit phase: fold the polynomial repeatedly and commit to each layer.
+    ///
+    /// Uses Plonky3-compatible Circle FRI folding:
+    /// - First layer uses y-fold with inverse y-twiddles
+    /// - Subsequent layers use x-fold with inverse x-twiddles
     ///
     /// # Arguments
     /// * `evaluations` - Initial polynomial evaluations on the LDE domain
@@ -182,7 +219,7 @@ impl FriProver {
             evaluations.len() == 1 << self.config.log_domain_size,
             "Evaluations must match domain size"
         );
-        
+
         let mut layers = Vec::with_capacity(self.config.num_layers());
         let mut current_evals = evaluations;
 
@@ -194,10 +231,22 @@ impl FriProver {
             layers.push(layer);
 
             // Get folding challenge from verifier (Fiat-Shamir)
-            let alpha = channel.squeeze_challenge();
+            let beta = channel.squeeze_challenge();
 
-            // Fold the polynomial
-            current_evals = self.fold_circle(&current_evals, alpha, layer_idx);
+            // Fold the polynomial using proper Circle FRI
+            current_evals = if layer_idx == 0 {
+                // First layer: y-fold
+                fold_y(&current_evals, beta, &self.y_twiddle_invs)
+            } else {
+                // Subsequent layers: x-fold
+                let x_layer = layer_idx - 1;
+                if x_layer < self.x_twiddle_invs.len() {
+                    fold_x(&current_evals, beta, &self.x_twiddle_invs[x_layer])
+                } else {
+                    // Fallback for very small domains
+                    self.fold_simple(&current_evals, beta)
+                }
+            };
         }
 
         // Final polynomial is small enough to send directly
@@ -219,58 +268,36 @@ impl FriProver {
         (layers, proof)
     }
 
-    /// Circle FRI folding: fold polynomial using twin-coset structure.
-    ///
-    /// For points at indices i and i + n/2 (which are twins on the circle),
-    /// we compute:
-    /// - f_folded[i] = (f[i] + f[i + n/2]) / 2 + alpha * (f[i] - f[i + n/2]) / (2 * y_i)
-    ///
-    /// This halves the domain size while maintaining the RS proximity property.
+    /// Simple folding for very small domains (fallback).
+    fn fold_simple(&self, evals: &[M31], beta: M31) -> Vec<M31> {
+        let half_n = evals.len() / 2;
+        let inv_two = M31::new(2).inv();
+
+        (0..half_n)
+            .map(|i| {
+                let lo = evals[2 * i];
+                let hi = evals[2 * i + 1];
+                let sum = lo + hi;
+                let diff = lo - hi;
+                (sum + beta * diff) * inv_two
+            })
+            .collect()
+    }
+
+    /// Legacy fold_circle method for backwards compatibility.
+    /// Uses the new optimized folding internally.
+    #[allow(dead_code)]
     fn fold_circle(&self, evals: &[M31], alpha: M31, layer: usize) -> Vec<M31> {
-        use zp1_primitives::CirclePoint;
-        
-        let n = evals.len();
-        let half_n = n / 2;
-        let mut folded = Vec::with_capacity(half_n);
-
-        // Two inverse constant
-        let two = M31::new(2);
-        let inv_two = two.inv();
-
-        // Get the circle domain generator for current layer
-        // Domain size at this layer = 2^(log_domain_size - layer)
-        let layer_log_size = self.config.log_domain_size.saturating_sub(layer);
-        let generator = CirclePoint::generator(layer_log_size);
-
-        for i in 0..half_n {
-            let f_pos = evals[i];
-            let f_neg = evals[i + half_n];
-
-            // Sum and difference
-            let sum = f_pos + f_neg;
-            let diff = f_pos - f_neg;
-
-            // Get y-coordinate of domain point i
-            // point_i = generator^i
-            let point_i = generator.pow(i as u64);
-            let y_i = point_i.y;
-            
-            // Proper Circle FRI folding formula:
-            // f_folded = (sum / 2) + alpha * (diff / (2 * y_i))
-            // = (sum / 2) + alpha * diff * inv_two * y_i^(-1)
-            let folded_val = if y_i.is_zero() {
-                // Edge case: y = 0 means we're at (1,0) or (-1,0)
-                // Just use the sum part
-                sum * inv_two
+        if layer == 0 {
+            fold_y(evals, alpha, &self.y_twiddle_invs)
+        } else {
+            let x_layer = layer - 1;
+            if x_layer < self.x_twiddle_invs.len() {
+                fold_x(evals, alpha, &self.x_twiddle_invs[x_layer])
             } else {
-                let y_inv = y_i.inv();
-                sum * inv_two + alpha * diff * inv_two * y_inv
-            };
-            
-            folded.push(folded_val);
+                self.fold_simple(evals, alpha)
+            }
         }
-
-        folded
     }
 
     /// Generate query proofs for all requested positions.
@@ -319,37 +346,44 @@ impl FriProver {
     }
     
     /// Verify a FRI proof (used by the verifier).
+    ///
+    /// Uses Plonky3-compatible Circle FRI folding verification:
+    /// - First layer uses y-fold with inverse y-twiddles
+    /// - Subsequent layers use x-fold with inverse x-twiddles
     pub fn verify(
         &self,
         proof: &FriProof,
         initial_commitment: &[u8; 32],
         channel: &mut ProverChannel,
     ) -> bool {
+        use zp1_primitives::{fold_y_single, fold_x_single, get_y_twiddle_inv, get_x_twiddle_inv};
+
         // Absorb initial commitment
         channel.absorb_commitment(initial_commitment);
-        
+
         // Collect challenges
         let mut challenges = Vec::with_capacity(proof.layer_commitments.len());
         for commitment in &proof.layer_commitments {
             channel.absorb_commitment(commitment);
             challenges.push(channel.squeeze_challenge());
         }
-        
+
         // Verify each query
         let query_indices = channel.squeeze_query_indices(
             self.config.num_queries,
             1 << self.config.log_domain_size,
         );
-        
+
         for (query_idx, query_proof) in proof.query_proofs.iter().enumerate() {
             if query_proof.index != query_indices[query_idx] {
                 return false;
             }
-            
+
             // Verify folding consistency through layers
             let mut current_idx = query_proof.index;
             let mut expected_value = None;
-            
+            let mut current_log_size = self.config.log_domain_size;
+
             for (layer_idx, layer_proof) in query_proof.layer_proofs.iter().enumerate() {
                 // If we have an expected value from previous folding, verify it
                 if let Some(expected) = expected_value {
@@ -357,21 +391,33 @@ impl FriProver {
                         return false;
                     }
                 }
-                
+
                 // Verify Merkle proof
                 // (In full implementation, would verify against layer commitment)
-                
-                // Compute expected folded value for next layer
-                let alpha = challenges[layer_idx];
-                let inv_two = M31::new(2).inv();
-                let sum = layer_proof.value + layer_proof.sibling_value;
-                let diff = layer_proof.value - layer_proof.sibling_value;
-                let folded = sum * inv_two + alpha * diff * inv_two;
-                
+
+                // Compute expected folded value for next layer using proper Circle FRI
+                let beta = challenges[layer_idx];
+                let lo = layer_proof.value;
+                let hi = layer_proof.sibling_value;
+
+                let folded = if layer_idx == 0 {
+                    // First layer: y-fold
+                    let twiddle_idx = current_idx / 2; // Index into y-twiddles
+                    let y_inv = get_y_twiddle_inv(current_log_size, twiddle_idx);
+                    fold_y_single(lo, hi, beta, y_inv)
+                } else {
+                    // Subsequent layers: x-fold
+                    let x_layer = layer_idx - 1;
+                    let twiddle_idx = current_idx / 2;
+                    let x_inv = get_x_twiddle_inv(current_log_size, x_layer, twiddle_idx);
+                    fold_x_single(lo, hi, beta, x_inv)
+                };
+
                 expected_value = Some(folded);
                 current_idx /= 2;
+                current_log_size = current_log_size.saturating_sub(1);
             }
-            
+
             // Verify final value matches final polynomial evaluation
             if let Some(expected) = expected_value {
                 let final_eval = evaluate_poly_at(&proof.final_poly, current_idx);
@@ -380,7 +426,7 @@ impl FriProver {
                 }
             }
         }
-        
+
         true
     }
 }

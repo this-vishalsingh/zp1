@@ -1,27 +1,39 @@
-//! Low-degree extension (LDE) using Circle FFT.
+//! Low-degree extension (LDE) using Plonky3's Circle FFT.
 //!
 //! For Mersenne31, we use Circle STARKs - evaluation on the circle group
 //! { (x, y) : x^2 + y^2 = 1 } over M31, which provides FFT-friendly domains.
 //!
-//! The LDE process:
-//! 1. Interpolate trace values to get polynomial coefficients (iFFT)
-//! 2. Extend coefficients to larger domain
-//! 3. Evaluate on extended domain (FFT)
+//! # Plonky3 Integration
+//!
+//! This module now uses Plonky3's optimized O(n log n) Circle FFT with:
+//! - SIMD acceleration (NEON on Apple Silicon, AVX2/512 on x86)
+//! - Direct extrapolation for LDE (no separate iFFT + FFT)
+//! - Parallel processing via Rayon
+//!
+//! # LDE Process (Optimized)
+//!
+//! The LDE now uses Plonky3's `extrapolate` which combines:
+//! 1. Interpolation on trace domain
+//! 2. Evaluation on extended domain
+//! Into a single optimized operation.
 
 use zp1_primitives::{M31, CircleFFT, CirclePoint};
+use rayon::prelude::*;
 
-/// LDE domain configuration.
+/// LDE domain configuration with Plonky3 acceleration.
 #[derive(Clone, Debug)]
 pub struct LdeDomain {
     /// Log2 of the trace length.
     pub log_trace_len: usize,
     /// Blowup factor (typically 8 or 16).
     pub blowup: usize,
+    /// Log2 of the blowup factor.
+    log_blowup: usize,
     /// Log2 of the LDE domain size.
     pub log_domain_size: usize,
-    /// Circle FFT for trace domain.
+    /// Circle FFT for trace domain (handles both FFT and extrapolation).
     trace_fft: CircleFFT,
-    /// Circle FFT for extended domain.
+    /// Circle FFT for extended domain (for domain point access).
     extended_fft: CircleFFT,
 }
 
@@ -30,7 +42,7 @@ impl LdeDomain {
     pub fn new(trace_len: usize, blowup: usize) -> Self {
         assert!(trace_len.is_power_of_two(), "Trace length must be power of 2");
         assert!(blowup.is_power_of_two(), "Blowup must be power of 2");
-        
+
         let log_trace_len = trace_len.trailing_zeros() as usize;
         let log_blowup = blowup.trailing_zeros() as usize;
         let log_domain_size = log_trace_len + log_blowup;
@@ -38,6 +50,7 @@ impl LdeDomain {
         Self {
             log_trace_len,
             blowup,
+            log_blowup,
             log_domain_size,
             trace_fft: CircleFFT::new(log_trace_len),
             extended_fft: CircleFFT::new(log_domain_size),
@@ -68,20 +81,22 @@ impl LdeDomain {
         self.extended_fft.get_domain_point(i)
     }
 
-    /// Perform LDE on a single column using Circle FFT.
+    /// Perform LDE on a single column using Plonky3's extrapolate.
+    ///
+    /// This uses Plonky3's optimized extrapolation which combines
+    /// interpolation and evaluation into a single O(n log n) operation.
     pub fn extend(&self, values: &[M31]) -> Vec<M31> {
         assert_eq!(values.len(), self.trace_len(), "Input must match trace length");
-        
-        // Step 1: iFFT to get coefficients
-        let coeffs = self.trace_fft.ifft(values);
-        
-        // Step 2: FFT on extended domain (zero-padded coefficients)
-        self.extended_fft.fft(&coeffs)
+
+        // Use Plonky3's extrapolate for efficient LDE
+        self.trace_fft.extend(values, self.log_blowup)
     }
 
-    /// Perform LDE on multiple columns.
+    /// Perform LDE on multiple columns in parallel.
+    ///
+    /// Uses Rayon for parallel processing across columns.
     pub fn extend_columns(&self, columns: &[Vec<M31>]) -> Vec<Vec<M31>> {
-        columns.iter().map(|col| self.extend(col)).collect()
+        columns.par_iter().map(|col| self.extend(col)).collect()
     }
 
     /// Get trace FFT.
