@@ -74,7 +74,7 @@ Comparing bit-based (32 iterations) vs lookup-based (4 iterations) constraint ev
 | Bit-based   | 558 µs | baseline |
 | Lookup-based | 68 µs  | **8.2x** |
 
-The lookup-based approach uses byte decomposition (4 bytes) instead of bit decomposition (32 bits), reducing constraint iterations by 87.5% and achieving 8-10x speedup.
+The lookup-based approach utilizes byte decomposition (4 bytes) instead of bit decomposition (32 bits), resulting in an 87.5% reduction in constraint iterations and achieving an 8-10x speedup.
 
 ### M31 Field Operations & Poseidon2 S-Box
 
@@ -267,7 +267,7 @@ All benchmarks run on:
 - **Samples**: 100 measurements per benchmark
 - **Warm-up**: 3 seconds per test
 
-Results may vary based on hardware but relative speedups remain consistent.
+Results may vary based on hardware, but relative speedups remain consistent.
 
 ---
 
