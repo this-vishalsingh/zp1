@@ -41,7 +41,7 @@ Where:
 - d = polynomial degree
 - |D| = domain size
 
-With 30 queries and rate 1/4:
+With 30 queries and rate of 1/4:
 - Per-query soundness: ~2 bits
 - Total FRI soundness: ~60 bits from queries alone
 
