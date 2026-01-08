@@ -1,5 +1,5 @@
 //! ZP1 Prover Benchmark
-//! 
+//!
 //! Compares sequential vs parallel proving performance.
 
 use std::time::Instant;
@@ -13,7 +13,7 @@ fn main() {
     let log_trace_len = 10; // 1024 rows (use 8 for faster demo)
     let trace_len = 1 << log_trace_len;
     let num_cols = 77;
-    
+
     let config = StarkConfig {
         log_trace_len,
         blowup_factor: 4,
@@ -22,8 +22,11 @@ fn main() {
         security_bits: 80,
         entry_point: 0x1000,
     };
-    
-    println!("Config: {} rows × {} cols, {}x blowup", trace_len, num_cols, config.blowup_factor);
+
+    println!(
+        "Config: {} rows × {} cols, {}x blowup",
+        trace_len, num_cols, config.blowup_factor
+    );
 
     // Generate trace with valid range-checked values
     let trace_columns: Vec<Vec<M31>> = (0..num_cols)
@@ -39,16 +42,16 @@ fn main() {
     // Sequential
     let mut prover = StarkProver::new(config.clone());
     prover.enable_range_checks();
-    
+
     let t0 = Instant::now();
     let proof = prover.prove(trace_columns.clone(), &public_inputs);
     let seq_time = t0.elapsed();
 
-    // Parallel  
+    // Parallel
     let mut prover = StarkProver::new(config);
     prover.enable_range_checks();
     prover.enable_parallel();
-    
+
     let t0 = Instant::now();
     let _proof_par = prover.prove(trace_columns, &public_inputs);
     let par_time = t0.elapsed();
@@ -56,8 +59,12 @@ fn main() {
     // Results
     println!("\nSequential: {:?}", seq_time);
     println!("Parallel:   {:?}", par_time);
-    println!("Speedup:    {:.2}x", seq_time.as_secs_f64() / par_time.as_secs_f64());
-    println!("\nProof: {} FRI layers, {} queries", 
+    println!(
+        "Speedup:    {:.2}x",
+        seq_time.as_secs_f64() / par_time.as_secs_f64()
+    );
+    println!(
+        "\nProof: {} FRI layers, {} queries",
         proof.fri_proof.layer_commitments.len(),
         proof.query_proofs.len()
     );
